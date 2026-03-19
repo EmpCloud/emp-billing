@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your Trial is Ending Soon</title>
+</head>
+<body style="margin:0; padding:0; background:#f4f5f7; font-family:'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7; padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:#6366f1; padding:32px 40px; text-align:center;">
+              <h1 style="margin:0; color:#ffffff; font-size:24px; font-weight:700; letter-spacing:-0.3px;">
+                Your Trial is Ending Soon
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px;">
+              <p style="margin:0 0 20px; font-size:15px; color:#111827; line-height:1.6;">
+                Hi {{clientName}},
+              </p>
+
+              <!-- Days remaining highlight -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fff3cd; border-radius:8px; border:1px solid #ffc107; margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px; text-align:center;">
+                    <div style="font-size:36px; font-weight:700; color:#856404;">{{daysLeft}}</div>
+                    <div style="font-size:14px; color:#856404; margin-top:4px;">days remaining in your free trial</div>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 20px; font-size:15px; color:#111827; line-height:1.6;">
+                Your trial for the following plan is ending on <strong>{{formatDate trialEndDate}}</strong>:
+              </p>
+
+              <!-- Plan details card -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4ff; border-radius:8px; border:1px solid #c7d2fe; margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <div style="font-size:18px; font-weight:600; color:#111827;">{{planName}}</div>
+                    <div style="font-size:16px; color:#6366f1; margin-top:6px;">{{planCurrency}} {{formatMoney planPrice}}</div>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 16px; font-size:15px; color:#4b5563; line-height:1.6;">
+                To continue using all features without interruption, please ensure your payment method is up to date. Your subscription will automatically activate when the trial ends.
+              </p>
+
+              <p style="margin:0 0 28px; font-size:15px; color:#4b5563; line-height:1.6;">
+                If you decide not to continue, no action is needed — your trial will simply expire.
+              </p>
+
+              <p style="margin:28px 0 0; font-size:13px; color:#9ca3af; text-align:center; line-height:1.5;">
+                Thank you for trying our service!
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f9fafb; padding:24px 40px; text-align:center; border-top:1px solid #e5e7eb;">
+              <p style="margin:0; font-size:13px; color:#9ca3af;">
+                {{org.name}}
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

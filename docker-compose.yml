@@ -1,0 +1,93 @@
+version: "3.9"
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: emp-billing-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DB_AUTO_MIGRATE: "true"
+    ports: ["4001:4001"]
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [billing-net]
+
+  mysql:
+    image: mysql:8.0
+    container_name: emp-billing-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: emp_billing_secret
+      MYSQL_DATABASE: emp_billing
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports: ["3307:3306"]
+    volumes: [mysql_data:/var/lib/mysql]
+    networks: [billing-net]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: emp-billing-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: emp_billing
+      POSTGRES_PASSWORD: emp_billing_secret
+      POSTGRES_DB: emp_billing
+    ports: ["5433:5432"]
+    volumes: [pg_data:/var/lib/postgresql/data]
+    networks: [billing-net]
+    profiles: ["pg"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emp_billing"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: emp-billing-redis
+    restart: unless-stopped
+    ports: ["6380:6379"]
+    volumes: [redis_data:/data]
+    networks: [billing-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: emp-billing-mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"   # Web UI
+      - "1025:1025"   # SMTP
+    networks: [billing-net]
+    profiles: ["dev"]
+
+networks:
+  billing-net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  pg_data:
+  redis_data:
+  uploads_data:

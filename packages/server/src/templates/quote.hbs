@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quote {{quote.quoteNumber}}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; }
+    .page { width: 794px; min-height: 1123px; margin: 0 auto; padding: 48px 56px; }
+
+    /* Header */
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; }
+    .logo { max-height: 64px; max-width: 200px; }
+    .org-name { font-size: 22px; font-weight: 700; color: {{brandPrimary}}; }
+    .doc-title { text-align: right; }
+    .doc-title h1 { font-size: 32px; font-weight: 700; color: {{brandPrimary}}; letter-spacing: -0.5px; }
+    .doc-title .doc-number { font-size: 14px; color: #666; margin-top: 4px; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px; }
+    .badge-paid { background: #d1fae5; color: #065f46; }
+    .badge-overdue { background: #fee2e2; color: #991b1b; }
+    .badge-draft { background: #f3f4f6; color: #374151; }
+    .badge-sent { background: #dbeafe; color: #1e40af; }
+    .badge-partial { background: #fef3c7; color: #92400e; }
+
+    /* Meta grid */
+    .meta { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-bottom: 36px; padding-bottom: 36px; border-bottom: 2px solid #f0f0f0; }
+    .meta-block label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: #9ca3af; font-weight: 600; display: block; margin-bottom: 4px; }
+    .meta-block p { font-size: 13px; color: #111; line-height: 1.5; }
+    .meta-block strong { font-weight: 600; }
+
+    /* Addresses */
+    .addresses { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 36px; }
+    .address-block h3 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: #9ca3af; font-weight: 600; margin-bottom: 8px; }
+    .address-block p { line-height: 1.7; color: #374151; }
+    .address-block .name { font-weight: 600; font-size: 14px; color: #111; margin-bottom: 2px; }
+
+    /* Line items table */
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+    .items-table thead tr { background: {{brandPrimary}}; color: #fff; }
+    .items-table thead th { padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .items-table thead th:last-child, .items-table tbody td:last-child { text-align: right; }
+    .items-table thead th.num { text-align: right; }
+    .items-table tbody tr { border-bottom: 1px solid #f0f0f0; }
+    .items-table tbody tr:nth-child(even) { background: #fafafa; }
+    .items-table tbody td { padding: 10px 12px; vertical-align: top; }
+    .items-table tbody td .desc { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .items-table tbody td .hsn { font-size: 10px; color: #9ca3af; margin-top: 1px; }
+    .tax-breakdown { font-size: 10px; color: #9ca3af; margin-top: 2px; }
+
+    /* Totals */
+    .totals-section { display: flex; justify-content: flex-end; margin-top: 0; }
+    .totals-table { width: 320px; border-top: 2px solid #f0f0f0; }
+    .totals-table tr td { padding: 7px 12px; font-size: 13px; }
+    .totals-table tr td:last-child { text-align: right; font-weight: 500; }
+    .totals-table .subtotal td { color: #6b7280; }
+    .totals-table .discount td { color: #059669; }
+    .totals-table .tax-row td { color: #6b7280; }
+    .totals-table .total-row td { font-size: 16px; font-weight: 700; border-top: 2px solid #111; padding-top: 10px; }
+
+    /* Notes & Terms */
+    .footer-section { margin-top: 40px; border-top: 2px solid #f0f0f0; padding-top: 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+    .footer-section h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: #9ca3af; font-weight: 600; margin-bottom: 8px; }
+    .footer-section p { font-size: 12px; color: #4b5563; line-height: 1.7; }
+
+    /* Footer message */
+    .thank-you { text-align: center; margin-top: 40px; font-size: 13px; color: #9ca3af; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      {{#if org.logo}}
+        <img class="logo" src="{{org.logo}}" alt="{{org.name}}" />
+      {{else}}
+        <div class="org-name">{{org.name}}</div>
+      {{/if}}
+      <div style="margin-top: 6px; font-size: 12px; color: #6b7280; line-height: 1.6;">
+        {{org.address.line1}}{{#if org.address.line2}}, {{org.address.line2}}{{/if}}<br/>
+        {{org.address.city}}, {{org.address.state}} {{org.address.postalCode}}<br/>
+        {{#if org.taxId}}GSTIN: {{org.taxId}}{{/if}}
+      </div>
+    </div>
+    <div class="doc-title">
+      <h1>QUOTE</h1>
+      <div class="doc-number">{{quote.quoteNumber}}</div>
+      {{#if quote.referenceNumber}}<div class="doc-number">Ref: {{quote.referenceNumber}}</div>{{/if}}
+      <span class="badge badge-{{statusClass}}">{{statusLabel}}</span>
+    </div>
+  </div>
+
+  <!-- Meta -->
+  <div class="meta">
+    <div class="meta-block">
+      <label>Issue Date</label>
+      <p>{{formatDate quote.issueDate}}</p>
+    </div>
+    <div class="meta-block">
+      <label>Expiry Date</label>
+      <p><strong>{{formatDate quote.expiryDate}}</strong></p>
+    </div>
+    <div class="meta-block">
+      <label>Currency</label>
+      <p>{{quote.currency}}</p>
+    </div>
+  </div>
+
+  <!-- Addresses -->
+  <div class="addresses">
+    <div class="address-block">
+      <h3>From</h3>
+      <div class="name">{{org.name}}</div>
+      <p>{{org.address.line1}}{{#if org.address.line2}}<br/>{{org.address.line2}}{{/if}}<br/>
+      {{org.address.city}}, {{org.address.state}} {{org.address.postalCode}}<br/>
+      {{org.address.country}}<br/>
+      {{#if org.email}}{{org.email}}{{/if}}</p>
+    </div>
+    <div class="address-block">
+      <h3>To</h3>
+      <div class="name">{{client.displayName}}</div>
+      {{#if client.billingAddress}}
+      <p>{{client.billingAddress.line1}}{{#if client.billingAddress.line2}}<br/>{{client.billingAddress.line2}}{{/if}}<br/>
+      {{client.billingAddress.city}}, {{client.billingAddress.state}} {{client.billingAddress.postalCode}}<br/>
+      {{client.billingAddress.country}}</p>
+      {{/if}}
+      {{#if client.taxId}}<p style="margin-top:4px">GSTIN: {{client.taxId}}</p>{{/if}}
+      {{#if client.email}}<p>{{client.email}}</p>{{/if}}
+    </div>
+  </div>
+
+  <!-- Line Items -->
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th style="width:36px">#</th>
+        <th>Item / Description</th>
+        <th class="num" style="width:70px">Qty</th>
+        <th class="num" style="width:90px">Rate</th>
+        <th class="num" style="width:80px">Discount</th>
+        <th class="num" style="width:80px">Tax</th>
+        <th class="num" style="width:100px">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each items}}
+      <tr>
+        <td>{{inc @index}}</td>
+        <td>
+          <strong>{{name}}</strong>
+          {{#if description}}<div class="desc">{{description}}</div>{{/if}}
+          {{#if hsnCode}}<div class="hsn">HSN/SAC: {{hsnCode}}</div>{{/if}}
+        </td>
+        <td style="text-align:right">{{quantity}} {{unit}}</td>
+        <td style="text-align:right">{{formatMoney rate ../quote.currency}}</td>
+        <td style="text-align:right">
+          {{#if discountAmount}}{{formatMoney discountAmount ../quote.currency}}{{else}}—{{/if}}
+        </td>
+        <td style="text-align:right">
+          {{formatMoney taxAmount ../quote.currency}}
+          {{#if taxBreakdown}}
+            {{#each taxBreakdown}}
+              <div class="tax-breakdown">{{name}} {{rate}}%</div>
+            {{/each}}
+          {{/if}}
+        </td>
+        <td style="text-align:right"><strong>{{formatMoney amount ../quote.currency}}</strong></td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+
+  <!-- Totals -->
+  <div class="totals-section">
+    <table class="totals-table">
+      <tr class="subtotal">
+        <td>Subtotal</td>
+        <td>{{formatMoney quote.subtotal quote.currency}}</td>
+      </tr>
+      {{#if quote.discountAmount}}
+      <tr class="discount">
+        <td>Discount</td>
+        <td>− {{formatMoney quote.discountAmount quote.currency}}</td>
+      </tr>
+      {{/if}}
+      {{#if quote.taxAmount}}
+      <tr class="tax-row">
+        <td>Tax</td>
+        <td>{{formatMoney quote.taxAmount quote.currency}}</td>
+      </tr>
+      {{/if}}
+      <tr class="total-row">
+        <td>Total</td>
+        <td>{{formatMoney quote.total quote.currency}}</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Notes & Terms -->
+  {{#if hasFooter}}
+  <div class="footer-section">
+    {{#if quote.notes}}
+    <div>
+      <h4>Notes</h4>
+      <p>{{quote.notes}}</p>
+    </div>
+    {{/if}}
+    {{#if quote.terms}}
+    <div>
+      <h4>Terms & Conditions</h4>
+      <p>{{quote.terms}}</p>
+    </div>
+    {{/if}}
+  </div>
+  {{/if}}
+
+  <div class="thank-you">This quote is valid until the expiry date.</div>
+</div>
+</body>
+</html>

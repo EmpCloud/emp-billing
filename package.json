@@ -1,0 +1,36 @@
+{
+  "name": "emp-billing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source billing & invoicing platform — part of the EmpCloud HRMS ecosystem",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EmpCloud/emp-billing.git"
+  },
+  "workspaces": [
+    "packages/server",
+    "packages/client",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm run dev --workspace=packages/server",
+    "dev:client": "npm run dev --workspace=packages/client",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "db:migrate": "npm run db:migrate --workspace=packages/server",
+    "db:seed": "npm run db:seed --workspace=packages/server",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "husky": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

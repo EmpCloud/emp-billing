@@ -1,0 +1,136 @@
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import morgan from "morgan";
+import compression from "compression";
+import cookieParser from "cookie-parser";
+import dotenv from "dotenv";
+dotenv.config();
+
+import { config } from "./config/index";
+import { logger } from "./utils/logger";
+import { getDB, closeDB } from "./db/adapters/index";
+import { errorMiddleware } from "./api/middleware/error.middleware";
+import { rateLimit } from "./api/middleware/rate-limit.middleware";
+
+import { uploadRoutes } from "./api/routes/upload.routes";
+import { gatewayRoutes } from "./api/routes/gateway.routes";
+import { initializeGateways } from "./services/payment/gateways/index";
+import { authRoutes } from "./api/routes/auth.routes";
+import { orgRoutes } from "./api/routes/org.routes";
+import { clientRoutes } from "./api/routes/client.routes";
+import { productRoutes } from "./api/routes/product.routes";
+import { invoiceRoutes } from "./api/routes/invoice.routes";
+import { quoteRoutes } from "./api/routes/quote.routes";
+import { paymentRoutes } from "./api/routes/payment.routes";
+import { creditNoteRoutes } from "./api/routes/credit-note.routes";
+import { vendorRoutes } from "./api/routes/vendor.routes";
+import { expenseRoutes } from "./api/routes/expense.routes";
+import { recurringRoutes } from "./api/routes/recurring.routes";
+import { reportRoutes } from "./api/routes/report.routes";
+import { disputeRoutes } from "./api/routes/dispute.routes";
+import { portalRoutes } from "./api/routes/portal.routes";
+import { webhookRoutes } from "./api/routes/webhook.routes";
+import { settingsRoutes } from "./api/routes/settings.routes";
+import { currencyRoutes } from "./api/routes/currency.routes";
+import { searchRoutes } from "./api/routes/search.routes";
+import { notificationRoutes } from "./api/routes/notification.routes";
+import { scheduledReportRoutes } from "./api/routes/scheduled-report.routes";
+import { subscriptionRoutes } from "./api/routes/subscription.routes";
+import { usageRoutes } from "./api/routes/usage.routes";
+import { couponRoutes } from "./api/routes/coupon.routes";
+import { dunningRoutes } from "./api/routes/dunning.routes";
+import { metricsRoutes } from "./api/routes/metrics.routes";
+import { registerListeners } from "./events/listeners";
+import { startWorkers } from "./jobs/index";
+import { setupSwagger } from "./api/docs/swagger";
+
+const app = express();
+
+// ── Global middleware ─────────────────────────────────────────────────────────
+app.use(helmet());
+app.use(cors({ origin: config.corsOrigin, credentials: true }));
+app.use(compression());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(morgan(config.env === "production" ? "combined" : "dev"));
+
+// ── Health ────────────────────────────────────────────────────────────────────
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", service: "emp-billing", version: "0.1.0", env: config.env });
+});
+
+// ── Static file serving for uploads ──────────────────────────────────────────
+app.use("/uploads", express.static(config.upload.uploadDir));
+
+// ── API Documentation (Swagger UI) ──────────────────────────────────────────
+setupSwagger(app);
+
+// ── Gateway webhooks — raw body needed, no auth ─────────────────────────────
+app.use("/webhooks/gateway", gatewayRoutes);
+
+// ── API v1 ────────────────────────────────────────────────────────────────────
+const v1 = express.Router();
+v1.use(rateLimit());
+v1.use("/auth",         authRoutes);
+v1.use("/organizations", orgRoutes);
+v1.use("/clients",      clientRoutes);
+v1.use("/products",     productRoutes);
+v1.use("/invoices",     invoiceRoutes);
+v1.use("/quotes",       quoteRoutes);
+v1.use("/payments",     paymentRoutes);
+v1.use("/credit-notes", creditNoteRoutes);
+v1.use("/vendors",      vendorRoutes);
+v1.use("/expenses",     expenseRoutes);
+v1.use("/recurring",    recurringRoutes);
+v1.use("/reports",      reportRoutes);
+v1.use("/disputes",     disputeRoutes);
+v1.use("/portal",       portalRoutes);
+v1.use("/webhooks",     webhookRoutes);
+v1.use("/settings",     settingsRoutes);
+v1.use("/currency",     currencyRoutes);
+v1.use("/uploads",      uploadRoutes);
+v1.use("/search",       searchRoutes);
+v1.use("/notifications", notificationRoutes);
+v1.use("/scheduled-reports", scheduledReportRoutes);
+v1.use("/subscriptions", subscriptionRoutes);
+v1.use("/usage",        usageRoutes);
+v1.use("/coupons",      couponRoutes);
+v1.use("/dunning",      dunningRoutes);
+v1.use("/metrics",      metricsRoutes);
+
+app.use("/api/v1", v1);
+
+// ── Error handler (must be last) ──────────────────────────────────────────────
+app.use(errorMiddleware);
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+async function bootstrap() {
+  try {
+    await getDB(); // connect + verify
+    registerListeners(); // wire up event system
+    initializeGateways(); // register configured payment gateways
+    await startWorkers(); // start BullMQ workers + scheduled jobs
+    app.listen(config.port, () => {
+      logger.info(`emp-billing server running on http://localhost:${config.port} [${config.env}]`);
+    });
+  } catch (err) {
+    logger.error("Failed to start server", { err });
+    process.exit(1);
+  }
+}
+
+bootstrap();
+
+// ── Graceful shutdown ─────────────────────────────────────────────────────────
+async function shutdown(signal: string) {
+  logger.info(`${signal} received — shutting down gracefully`);
+  await closeDB();
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+export { app };
