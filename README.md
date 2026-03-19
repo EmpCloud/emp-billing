@@ -10,6 +10,60 @@ Handles the complete billing lifecycle: **Quotes > Invoices > Payments > Receipt
 
 ---
 
+## Screenshots
+
+### Authentication
+| Login | Register | Forgot Password |
+|-------|----------|-----------------|
+| ![Login](docs/screenshots/01-login.png) | ![Register](docs/screenshots/02-register.png) | ![Forgot Password](docs/screenshots/03-forgot-password.png) |
+
+### Dashboard & Navigation
+| Dashboard | Settings |
+|-----------|----------|
+| ![Dashboard](docs/screenshots/04-dashboard.png) | ![Settings](docs/screenshots/23-settings.png) |
+
+### Invoicing
+| Invoice List | Create Invoice |
+|-------------|----------------|
+| ![Invoices](docs/screenshots/05-invoices.png) | ![Create Invoice](docs/screenshots/06-invoice-create.png) |
+
+### Quotes
+| Quote List | Create Quote |
+|-----------|--------------|
+| ![Quotes](docs/screenshots/07-quotes.png) | ![Create Quote](docs/screenshots/08-quote-create.png) |
+
+### Clients & Products
+| Clients | Add Client | Products | Add Product |
+|---------|-----------|----------|-------------|
+| ![Clients](docs/screenshots/09-clients.png) | ![Add Client](docs/screenshots/10-client-create.png) | ![Products](docs/screenshots/11-products.png) | ![Add Product](docs/screenshots/12-product-create.png) |
+
+### Payments & Expenses
+| Payments | Expenses | Create Expense |
+|----------|----------|----------------|
+| ![Payments](docs/screenshots/13-payments.png) | ![Expenses](docs/screenshots/14-expenses.png) | ![Create Expense](docs/screenshots/15-expense-create.png) |
+
+### Credit Notes, Recurring & Vendors
+| Credit Notes | Recurring Invoices | Vendors |
+|-------------|-------------------|---------|
+| ![Credit Notes](docs/screenshots/16-credit-notes.png) | ![Recurring](docs/screenshots/17-recurring.png) | ![Vendors](docs/screenshots/18-vendors.png) |
+
+### Reports
+| Reports | Report Builder |
+|---------|---------------|
+| ![Reports](docs/screenshots/19-reports.png) | ![Report Builder](docs/screenshots/20-report-builder.png) |
+
+### Subscriptions & Plans
+| Subscriptions | Plans |
+|--------------|-------|
+| ![Subscriptions](docs/screenshots/21-subscriptions.png) | ![Plans](docs/screenshots/22-plans.png) |
+
+### Team & Client Portal
+| Team | Client Portal Login |
+|------|-------------------|
+| ![Team](docs/screenshots/24-team.png) | ![Portal Login](docs/screenshots/25-portal-login.png) |
+
+---
+
 ## Features
 
 ### Core Billing
