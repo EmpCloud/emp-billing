@@ -108,7 +108,7 @@ app.use(errorMiddleware);
 // ── Serve client SPA in production ──────────────────────────────────────────
 import path from "path";
 if (config.env === "production") {
-  const clientDist = path.resolve(__dirname, "../../client/dist");
+  const clientDist = path.resolve(__dirname, "../../../../client/dist");
   app.use(express.static(clientDist));
   app.use((_req, res) => {
     res.sendFile(path.join(clientDist, "index.html"));
