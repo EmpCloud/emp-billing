@@ -56,16 +56,16 @@ wait_for_redis
 # Run migrations if enabled
 if [ "${DB_AUTO_MIGRATE}" = "true" ]; then
   echo "Running database migrations..."
-  node packages/server/dist/db/migrate.js
+  node packages/server/dist/server/src/db/migrate.js
   echo "Migrations complete."
 fi
 
 # Run seeds if enabled (useful for first-time setup)
 if [ "${DB_AUTO_SEED}" = "true" ]; then
   echo "Running database seeds..."
-  node packages/server/dist/db/seed.js
+  node packages/server/dist/server/src/db/seed.js
   echo "Seeding complete."
 fi
 
 echo "Starting emp-billing server..."
-exec node packages/server/dist/index.js
+exec node packages/server/dist/server/src/index.js

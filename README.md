@@ -64,6 +64,57 @@ Handles the complete billing lifecycle: **Quotes > Invoices > Payments > Receipt
 
 ---
 
+## Project Status
+
+### Build & Test Status
+
+- **Build**: All 3 packages compile successfully (shared, server, client)
+- **Tests**: **778 passing** across 46 test files — zero failures
+  - `@emp-billing/server`: 617 tests (39 files) — services, middleware, utils, events
+  - `@emp-billing/client`: 11 tests (3 files) — Zustand stores
+  - `@emp-billing/shared`: 150 tests (4 files) — validators, tax engines (GST, UAE, VAT, Sales Tax), billing utils
+
+### What's Built (Complete)
+
+| Area | Status | Details |
+|------|--------|---------|
+| **Invoicing** | Done | Full CRUD, line items, multi-tax, auto-numbering, PDF generation, bulk actions |
+| **Quotes** | Done | Full lifecycle, versioning, convert to invoice, client approval |
+| **Payments** | Done | Record/refund, 3 gateways (Stripe, Razorpay, PayPal), auto-charge |
+| **Credit Notes** | Done | Issue, apply to invoice, refund |
+| **Recurring** | Done | Schedule profiles, auto-generate, auto-send, pause/resume |
+| **Clients** | Done | CRUD, contacts, portal access, statements, CSV import/export |
+| **Products** | Done | CRUD, SKU, pricing tiers, inventory tracking |
+| **Expenses** | Done | CRUD, receipt upload, OCR scanning, bill-to-client |
+| **Vendors** | Done | CRUD, expense association |
+| **Tax — India GST** | Done | CGST/SGST/IGST, HSN/SAC, TDS, e-Invoice IRN, e-Way Bill hooks |
+| **Tax — UAE** | Done | 5% VAT, excise tax, corporate tax, TRN validation, reverse charge |
+| **Tax — EU/UK VAT** | Done | 27 EU countries + UK, all rate types, reverse charge B2B |
+| **Tax — US Sales Tax** | Done | 50 states + DC, county/city stacking |
+| **Subscriptions** | Done | Plans, trials, usage-based billing, quantity seats |
+| **Coupons** | Done | Percentage/fixed, per-client limits, date validity |
+| **Dunning** | Done | Automated retry, configurable schedules |
+| **Client Portal** | Done | Login, view invoices/quotes, pay online, disputes |
+| **Notifications** | Done | Email (Nodemailer), SMS (Twilio), WhatsApp (Twilio + Meta) |
+| **Reports** | Done | Revenue, aging, tax, expenses, P&L, scheduled reports |
+| **Report Builder UI** | Done | Custom filters, grouping, column selection, save/load configs |
+| **Search** | Done | Full-text across all entities |
+| **Webhooks** | Done | 20+ event types, delivery logs |
+| **SaaS Metrics** | Done | MRR, ARR, churn, LTV, cohort analysis |
+| **Team/RBAC** | Done | Owner/Admin/Accountant/Sales/Viewer roles |
+| **Audit Log** | Done | Full activity trail |
+| **API Docs** | Done | OpenAPI 3.0 spec, Swagger UI at `/api/docs` |
+| **MongoDB Adapter** | Done | Full `IDBAdapter` implementation with native driver |
+| **Docker** | Done | Multi-stage Dockerfile, docker-compose with MySQL + Redis + App |
+| **OCR** | Done | Tesseract.js local + cloud provider hooks |
+
+### Database Schema
+
+14 migrations applied covering 30+ tables:
+`organizations`, `users`, `clients`, `client_contacts`, `products`, `price_lists`, `tax_rates`, `invoices`, `invoice_items`, `quotes`, `quote_items`, `credit_notes`, `credit_note_items`, `payments`, `payment_allocations`, `expenses`, `expense_categories`, `vendors`, `recurring_profiles`, `recurring_executions`, `templates`, `client_portal_access`, `webhooks`, `webhook_deliveries`, `audit_logs`, `settings`, `notifications`, `disputes`, `scheduled_reports`, `subscriptions`, `plans`, `usage_records`, `coupons`, `dunning_attempts`, `saved_payment_methods`
+
+---
+
 ## Features
 
 ### Core Billing
@@ -211,12 +262,25 @@ pnpm run dev
 ### Docker Deployment
 
 ```bash
-# Build and run everything
-docker compose --profile app up -d
+# Start infrastructure + app (builds automatically)
+docker compose up -d
 
-# Or build manually
-docker build -f docker/Dockerfile -t emp-billing .
-docker run -p 4001:4001 --env-file .env emp-billing
+# Or rebuild after code changes
+docker compose up -d --build app
+
+# View logs
+docker logs -f emp-billing-app
+
+# Stop everything
+docker compose down
+```
+
+In production mode (`NODE_ENV=production`), the server serves the client SPA on port 4001 — no separate frontend server needed.
+
+#### Expose via ngrok
+
+```bash
+ngrok http 4001 --domain=your-domain.ngrok-free.dev
 ```
 
 ### Running Tests

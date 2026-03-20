@@ -194,12 +194,16 @@ export class KnexAdapter implements IDBAdapter {
   }
 
   async migrate(): Promise<void> {
-    await this.knex.migrate.latest({ directory: "./src/db/migrations" });
+    const path = await import("path");
+    const dir = path.resolve(__dirname, "../migrations");
+    await this.knex.migrate.latest({ directory: dir });
     logger.info("[DB] Migrations complete");
   }
 
   async seed(): Promise<void> {
-    await this.knex.seed.run({ directory: "./src/db/seeds" });
+    const path = await import("path");
+    const dir = path.resolve(__dirname, "../seeds");
+    await this.knex.seed.run({ directory: dir });
     logger.info("[DB] Seeds complete");
   }
 
