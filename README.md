@@ -62,6 +62,26 @@ Handles the complete billing lifecycle: **Quotes > Invoices > Payments > Receipt
 |------|-------------------|
 | ![Team](docs/screenshots/24-team.png) | ![Portal Login](docs/screenshots/25-portal-login.png) |
 
+### Invoice & Client Details
+| Invoice Detail | Client Detail |
+|----------------|---------------|
+| ![Invoice Detail](docs/screenshots/26-invoice-detail.png) | ![Client Detail](docs/screenshots/27-client-detail.png) |
+
+### Coupons, Webhooks & Audit
+| Coupons | Webhooks | Audit Log |
+|---------|----------|-----------|
+| ![Coupons](docs/screenshots/28-coupons.png) | ![Webhooks](docs/screenshots/29-webhooks.png) | ![Audit Log](docs/screenshots/30-audit-log.png) |
+
+### Metrics, Disputes & Usage
+| SaaS Metrics | Disputes | Usage Records |
+|-------------|----------|---------------|
+| ![Metrics](docs/screenshots/31-metrics.png) | ![Disputes](docs/screenshots/32-disputes.png) | ![Usage](docs/screenshots/33-usage.png) |
+
+### Dunning & API Docs
+| Dunning / Payment Retry | API Documentation (Swagger) |
+|------------------------|----------------------------|
+| ![Dunning](docs/screenshots/34-dunning.png) | ![API Docs](docs/screenshots/35-api-docs.png) |
+
 ---
 
 ## Project Status
