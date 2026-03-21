@@ -38,9 +38,11 @@ export function ClientListPage() {
   function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
-    importCSV.mutate(formData);
+    const reader = new FileReader();
+    reader.onload = () => {
+      importCSV.mutate(reader.result as string);
+    };
+    reader.readAsText(file);
     // Reset the input so the same file can be re-selected
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -128,81 +130,140 @@ export function ClientListPage() {
         />
       )}
 
-      {/* Table */}
+      {/* Desktop Table */}
       {!isLoading && clients.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Email</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Tags</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500">Outstanding</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500">Total Billed</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {clients.map((client) => (
-                <tr key={client.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{client.displayName || client.name}</div>
-                    {client.displayName && client.displayName !== client.name && (
-                      <div className="text-xs text-gray-400">{client.name}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{client.email}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {(client.tags ?? []).map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex items-center bg-brand-50 text-brand-700 rounded-full px-2 py-0.5 text-xs font-medium cursor-pointer hover:bg-brand-100 transition-colors"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTagFilter(tag);
-                          }}
-                          title={`Filter by "${tag}"`}
+        <>
+          <div className="hidden md:block overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Name</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Email</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Tags</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-500">Outstanding</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-500">Total Billed</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {clients.map((client) => (
+                  <tr key={client.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-gray-900">{client.displayName || client.name}</div>
+                      {client.displayName && client.displayName !== client.name && (
+                        <div className="text-xs text-gray-400">{client.name}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{client.email}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {(client.tags ?? []).map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center bg-brand-50 text-brand-700 rounded-full px-2 py-0.5 text-xs font-medium cursor-pointer hover:bg-brand-100 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTagFilter(tag);
+                            }}
+                            title={`Filter by "${tag}"`}
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={client.outstandingBalance > 0 ? "text-amber-700 font-medium" : "text-gray-500"}>
+                        {formatMoney(client.outstandingBalance, client.currency)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-700">
+                      {formatMoney(client.totalBilled, client.currency)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<Eye className="h-4 w-4" />}
+                          onClick={() => navigate(`/clients/${client.id}`)}
                         >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={client.outstandingBalance > 0 ? "text-amber-700 font-medium" : "text-gray-500"}>
+                          View
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<Trash2 className="h-4 w-4 text-red-500" />}
+                          onClick={() => handleDelete(client.id, client.name)}
+                          loading={deleteClient.isPending}
+                        >
+                          <span className="text-red-600">Delete</span>
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card Layout */}
+          <div className="md:hidden space-y-3">
+            {clients.map((client) => (
+              <div
+                key={client.id}
+                className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900">{client.displayName || client.name}</div>
+                    <div className="text-sm text-gray-500">{client.email}</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Eye className="h-4 w-4" />}
+                      onClick={() => navigate(`/clients/${client.id}`)}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Trash2 className="h-4 w-4 text-red-500" />}
+                      onClick={() => handleDelete(client.id, client.name)}
+                      loading={deleteClient.isPending}
+                    />
+                  </div>
+                </div>
+                {(client.tags ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {(client.tags ?? []).map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center bg-brand-50 text-brand-700 rounded-full px-2 py-0.5 text-xs font-medium cursor-pointer hover:bg-brand-100 transition-colors"
+                        onClick={() => setTagFilter(tag)}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex justify-between text-sm border-t border-gray-100 pt-2">
+                  <div>
+                    <span className="text-gray-500">Outstanding: </span>
+                    <span className={client.outstandingBalance > 0 ? "text-amber-700 font-medium" : "text-gray-600"}>
                       {formatMoney(client.outstandingBalance, client.currency)}
                     </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-700">
-                    {formatMoney(client.totalBilled, client.currency)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={<Eye className="h-4 w-4" />}
-                        onClick={() => navigate(`/clients/${client.id}`)}
-                      >
-                        View
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={<Trash2 className="h-4 w-4 text-red-500" />}
-                        onClick={() => handleDelete(client.id, client.name)}
-                        loading={deleteClient.isPending}
-                      >
-                        <span className="text-red-600">Delete</span>
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Billed: </span>
+                    <span className="text-gray-700 font-medium">{formatMoney(client.totalBilled, client.currency)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

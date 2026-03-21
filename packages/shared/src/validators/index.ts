@@ -11,13 +11,15 @@ import {
 // PRIMITIVES
 // ============================================================================
 
+const alphaWithSpaces = /^[A-Za-z\s\-'.]+$/;
+
 export const AddressSchema = z.object({
   line1: z.string().min(1, "Address line 1 is required"),
   line2: z.string().optional(),
-  city: z.string().min(1, "City is required"),
-  state: z.string().min(1, "State is required"),
+  city: z.string().min(1, "City is required").regex(alphaWithSpaces, "City must contain only letters"),
+  state: z.string().min(1, "State is required").regex(alphaWithSpaces, "State must contain only letters"),
   postalCode: z.string().min(1, "Postal code is required"),
-  country: z.string().min(2, "Country is required"),
+  country: z.string().min(2, "Country is required").regex(alphaWithSpaces, "Country must contain only letters"),
 });
 
 export const PaginationSchema = z.object({
@@ -115,7 +117,7 @@ export const ClientContactSchema = z.object({
 });
 
 export const CreateClientSchema = z.object({
-  name: z.string().min(1, "Client name is required").max(100),
+  name: z.string().min(1, "Client name is required").max(100).refine((v) => !/^\d+$/.test(v.trim()), "Client name cannot be purely numeric"),
   displayName: z.string().min(1).max(100),
   email: z.string().email("Valid email required"),
   phone: z.string().optional(),
@@ -220,7 +222,7 @@ export const UpdateTaxRateSchema = CreateTaxRateSchema.partial();
 
 export const InvoiceItemSchema = z.object({
   productId: z.string().uuid().optional(),
-  name: z.string().min(1, "Item name is required"),
+  name: z.string().min(1, "Item name is required").refine((v) => !/^\d+$/.test(v.trim()), "Item name cannot be purely numeric"),
   description: z.string().optional(),
   hsnCode: z.string().optional(),
   quantity: z.number().positive("Quantity must be positive"),

@@ -122,13 +122,17 @@ export function useDuplicateInvoice() {
 
 export function useDownloadInvoicePdf(id: string) {
   return async () => {
-    const res = await api.get(`/invoices/${id}/pdf`, { responseType: "blob" });
-    const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `invoice-${id}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const res = await api.get(`/invoices/${id}/pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Failed to download PDF");
+    }
   };
 }
 

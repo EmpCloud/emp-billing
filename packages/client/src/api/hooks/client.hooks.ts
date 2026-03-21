@@ -102,10 +102,8 @@ export function useExportClientsCSV() {
 export function useImportClientsCSV() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (formData: FormData) =>
-      api.post("/clients/import/csv", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      }),
+    mutationFn: (csv: string) =>
+      apiPost("/clients/import/csv", { csv }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [CLIENTS_KEY] });
       toast.success("Clients imported successfully");

@@ -25,7 +25,13 @@ export async function listClients(
     orderBy: [{ column: "name", direction: "asc" }],
   });
 
-  let data = result.data;
+  let data = result.data.map((c) => ({
+    ...c,
+    tags: typeof c.tags === "string" ? safeParseJSON(c.tags, []) : (c.tags ?? []),
+    billingAddress: typeof c.billingAddress === "string" ? safeParseJSON(c.billingAddress, null) : c.billingAddress,
+    shippingAddress: typeof c.shippingAddress === "string" ? safeParseJSON(c.shippingAddress, null) : c.shippingAddress,
+    customFields: typeof c.customFields === "string" ? safeParseJSON(c.customFields, null) : c.customFields,
+  })) as Client[];
 
   if (opts.search) {
     const q = opts.search.toLowerCase();
@@ -40,8 +46,15 @@ export async function listClients(
   if (opts.tags) {
     const filterTags = opts.tags.split(",").map((t) => t.trim().toLowerCase());
     data = data.filter((c) => {
-      const clientTags: string[] = Array.isArray(c.tags) ? c.tags : [];
-      return filterTags.some((t) => clientTags.includes(t));
+      const raw = c.tags;
+      const clientTags: string[] = Array.isArray(raw)
+        ? raw
+        : typeof raw === "string"
+          ? safeParseJSON(raw, [])
+          : [];
+      return filterTags.some((ft) =>
+        clientTags.some((ct) => ct.toLowerCase().includes(ft))
+      );
     });
   }
 
@@ -52,6 +65,12 @@ export async function getClient(orgId: string, id: string): Promise<Client & { c
   const db = await getDB();
   const client = await db.findById<Client>("clients", id, orgId);
   if (!client) throw NotFoundError("Client");
+
+  // Parse JSON string fields returned from DB
+  if (typeof client.billingAddress === "string") client.billingAddress = safeParseJSON(client.billingAddress, null) as Client["billingAddress"];
+  if (typeof client.shippingAddress === "string") client.shippingAddress = safeParseJSON(client.shippingAddress, null) as Client["shippingAddress"];
+  if (typeof client.tags === "string") client.tags = safeParseJSON(client.tags, []);
+  if (typeof client.customFields === "string") client.customFields = safeParseJSON(client.customFields, null) as Client["customFields"];
 
   const contacts = await db.findMany<ClientContact>("client_contacts", {
     where: { client_id: id },
@@ -323,4 +342,10 @@ export async function removePaymentMethod(
   }, orgId);
 
   return (await db.findById<Client>("clients", clientId, orgId))!;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function safeParseJSON<T>(value: string, fallback: T): T {
+  try { return JSON.parse(value) as T; } catch { return fallback; }
 }

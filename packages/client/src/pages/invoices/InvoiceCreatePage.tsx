@@ -113,7 +113,7 @@ function getTieredBreakdown(tiers: PricingTier[], quantity: number): string[] {
 
 // Form uses human-readable rates (not paise); we convert before submitting.
 const FormItemSchema = z.object({
-  name: z.string().min(1, "Item name required"),
+  name: z.string().min(1, "Item name required").refine((v) => !/^\d+$/.test(v.trim()), "Item name cannot be purely numeric"),
   description: z.string().optional(),
   quantity: z.coerce.number().positive("Must be > 0"),
   rate: z.coerce.number().min(0, "Must be ≥ 0"), // in normal units, e.g. ₹5000

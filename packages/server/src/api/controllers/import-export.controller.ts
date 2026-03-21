@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import * as csvService from "../../services/import-export/csv.service";
+import { BadRequestError } from "../../utils/AppError";
 
 // ============================================================================
 // IMPORT / EXPORT CONTROLLER
@@ -16,6 +17,7 @@ export async function exportClients(req: Request, res: Response): Promise<void> 
 
 export async function importClients(req: Request, res: Response): Promise<void> {
   const { csv } = req.body as { csv: string };
+  if (!csv) throw BadRequestError("CSV data is required — send { csv: \"...\" }");
   const result = await csvService.importClientsCSV(req.user!.orgId, csv);
   res.json({ success: true, data: result });
 }
@@ -31,6 +33,7 @@ export async function exportProducts(req: Request, res: Response): Promise<void>
 
 export async function importProducts(req: Request, res: Response): Promise<void> {
   const { csv } = req.body as { csv: string };
+  if (!csv) throw BadRequestError("CSV data is required — send { csv: \"...\" }");
   const result = await csvService.importProductsCSV(req.user!.orgId, csv);
   res.json({ success: true, data: result });
 }

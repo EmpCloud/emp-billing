@@ -19,7 +19,7 @@ router.get("/",            asyncHandler(clientController.listClients));
 router.get("/:id",         asyncHandler(clientController.getClient));
 router.post("/",           requireSales, validateBody(CreateClientSchema), asyncHandler(clientController.createClient));
 router.put("/:id",         requireSales, validateBody(UpdateClientSchema), asyncHandler(clientController.updateClient));
-router.delete("/:id",      requireAccountant, asyncHandler(clientController.deleteClient));
+router.delete("/:id",      requireSales, asyncHandler(clientController.deleteClient));
 
 // Contacts
 router.get("/:id/contacts",  asyncHandler(clientController.listContacts));
