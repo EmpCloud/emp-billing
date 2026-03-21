@@ -67,10 +67,10 @@ export async function getClient(orgId: string, id: string): Promise<Client & { c
   if (!client) throw NotFoundError("Client");
 
   // Parse JSON string fields returned from DB
-  if (typeof client.billingAddress === "string") client.billingAddress = safeParseJSON(client.billingAddress, null) as Client["billingAddress"];
-  if (typeof client.shippingAddress === "string") client.shippingAddress = safeParseJSON(client.shippingAddress, null) as Client["shippingAddress"];
+  if (typeof client.billingAddress === "string") client.billingAddress = safeParseJSON(client.billingAddress, null) as unknown as Client["billingAddress"];
+  if (typeof client.shippingAddress === "string") client.shippingAddress = safeParseJSON(client.shippingAddress, null) as unknown as Client["shippingAddress"];
   if (typeof client.tags === "string") client.tags = safeParseJSON(client.tags, []);
-  if (typeof client.customFields === "string") client.customFields = safeParseJSON(client.customFields, null) as Client["customFields"];
+  if (typeof client.customFields === "string") client.customFields = safeParseJSON(client.customFields, null) as unknown as Client["customFields"];
 
   const contacts = await db.findMany<ClientContact>("client_contacts", {
     where: { client_id: id },
