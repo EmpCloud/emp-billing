@@ -110,7 +110,11 @@ import path from "path";
 if (config.env === "production") {
   const clientDist = path.resolve(__dirname, "../../../../client/dist");
   app.use(express.static(clientDist));
-  app.use((_req, res) => {
+  // SPA fallback — but skip /api/* and /health so they return proper 404s instead of index.html
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api/") || req.path === "/health") {
+      return next();
+    }
     res.sendFile(path.join(clientDist, "index.html"));
   });
 }
