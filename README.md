@@ -80,7 +80,7 @@ Handles the complete billing lifecycle: **Quotes > Invoices > Payments > Receipt
 ### Dunning & API Docs
 | Dunning / Payment Retry | API Documentation (Swagger) |
 |------------------------|----------------------------|
-| ![Dunning](docs/screenshots/34-dunning.png) | ![API Docs](docs/screenshots/35-api-docs.png) |
+| ![Dunning](docs/screenshots/34-dunning.png) | ![API Docs](docs/screenshots/35-api-docs.png?v=2) |
 
 ---
 
