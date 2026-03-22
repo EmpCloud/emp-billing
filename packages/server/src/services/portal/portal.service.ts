@@ -64,16 +64,22 @@ function generatePortalJwt(clientId: string, orgId: string): string {
 
 // ── Login ──────────────────────────────────────────────────────────────────
 
-export async function portalLogin(email: string, token: string): Promise<PortalLoginResult> {
+export async function portalLogin(email: string, token: string, domainOrgId?: string): Promise<PortalLoginResult> {
   const db = await getDB();
 
   const tokenHash = hashToken(token);
 
-  const access = await db.findOne<PortalAccessRow>("client_portal_access", {
+  // Build query — optionally scope to the org resolved from a custom domain
+  const query: Record<string, unknown> = {
     email,
     token_hash: tokenHash,
     is_active: true,
-  });
+  };
+  if (domainOrgId) {
+    query.org_id = domainOrgId;
+  }
+
+  const access = await db.findOne<PortalAccessRow>("client_portal_access", query);
 
   if (!access) {
     throw UnauthorizedError("Invalid email or portal access token");

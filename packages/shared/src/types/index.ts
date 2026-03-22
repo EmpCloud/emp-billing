@@ -918,3 +918,17 @@ export interface GlobalSearchResults {
   products: GlobalSearchResult[];
   vendors: GlobalSearchResult[];
 }
+
+// ---------------------------------------------------------------------------
+// Custom Domain
+// ---------------------------------------------------------------------------
+
+export interface CustomDomain {
+  id: string;
+  orgId: string;
+  domain: string;
+  verified: boolean;
+  sslProvisioned: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}

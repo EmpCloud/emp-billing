@@ -113,6 +113,9 @@ export const config = {
     metaApiVersion: optional("WHATSAPP_META_API_VERSION", "v18.0"),
   },
 
+  // Custom domains
+  defaultDomain: optional("DEFAULT_DOMAIN", "billing.empcloud.com"),
+
   // Bcrypt
   bcryptRounds: parseInt(optional("BCRYPT_ROUNDS", "12")),
 

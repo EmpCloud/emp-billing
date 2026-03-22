@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { Building2, Hash, Palette, Percent, Plus, Pencil, Trash2, CreditCard, Mail, Info, FileText, AlertCircle, Clock, Calendar } from "lucide-react";
+import { Building2, Hash, Palette, Percent, Plus, Pencil, Trash2, CreditCard, Mail, Info, FileText, AlertCircle, Clock, Calendar, Globe, CheckCircle2, XCircle, ShieldCheck, Loader2 } from "lucide-react";
 import {
   useOrgSettings,
   useUpdateOrgSettings,
@@ -33,9 +33,15 @@ import {
   useDunningConfig,
   useUpdateDunningConfig,
 } from "@/api/hooks/dunning.hooks";
-import type { TaxRate, TaxComponent, ScheduledReport } from "@emp-billing/shared";
+import {
+  useListDomains,
+  useAddDomain,
+  useRemoveDomain,
+  useVerifyDomain,
+} from "@/api/hooks/domain.hooks";
+import type { TaxRate, TaxComponent, ScheduledReport, CustomDomain } from "@emp-billing/shared";
 
-type SettingsTab = "organization" | "numbering" | "branding" | "tax-rates" | "gateways" | "email" | "scheduled-reports" | "dunning";
+type SettingsTab = "organization" | "numbering" | "branding" | "tax-rates" | "gateways" | "email" | "scheduled-reports" | "dunning" | "domains";
 
 const TABS: { key: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { key: "organization", label: "Organization", icon: <Building2 className="h-4 w-4" /> },
@@ -46,6 +52,7 @@ const TABS: { key: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { key: "email", label: "Email", icon: <Mail className="h-4 w-4" /> },
   { key: "scheduled-reports", label: "Scheduled Reports", icon: <Calendar className="h-4 w-4" /> },
   { key: "dunning", label: "Dunning", icon: <AlertCircle className="h-4 w-4" /> },
+  { key: "domains", label: "Domains", icon: <Globe className="h-4 w-4" /> },
 ];
 
 const CURRENCIES = [
@@ -1695,6 +1702,138 @@ function DunningSettingsTab() {
   );
 }
 
+// ---------- Custom Domains Tab ----------
+
+function DomainsTab() {
+  const { data, isLoading } = useListDomains();
+  const addDomain = useAddDomain();
+  const removeDomain = useRemoveDomain();
+  const verifyDomain = useVerifyDomain();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newDomain, setNewDomain] = useState("");
+
+  const domains: CustomDomain[] = data?.data ?? [];
+
+  function handleAdd() {
+    if (!newDomain.trim()) return;
+    addDomain.mutate({ domain: newDomain.trim().toLowerCase() }, {
+      onSuccess: () => {
+        setNewDomain("");
+        setShowAddModal(false);
+      },
+    });
+  }
+
+  if (isLoading) return <Spinner />;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-1">Custom Domains</h3>
+          <p className="text-xs text-gray-500">
+            Point your own subdomain to your billing portal. Add a CNAME record pointing your subdomain to{" "}
+            <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">billing.empcloud.com</code>
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setShowAddModal(true)}>
+          <Plus className="h-4 w-4 mr-1" /> Add Domain
+        </Button>
+      </div>
+
+      {domains.length === 0 ? (
+        <div className="text-center py-12 text-gray-400 text-sm">
+          No custom domains configured. Click "Add Domain" to get started.
+        </div>
+      ) : (
+        <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+          {domains.map((d) => (
+            <div key={d.id} className="flex items-center justify-between px-4 py-3">
+              <div className="flex items-center gap-3">
+                <Globe className="h-4 w-4 text-gray-400" />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">{d.domain}</span>
+                  <div className="flex items-center gap-3 mt-0.5">
+                    <span className={`inline-flex items-center gap-1 text-xs ${d.verified ? "text-green-600" : "text-amber-600"}`}>
+                      {d.verified ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                      {d.verified ? "DNS Verified" : "Unverified"}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 text-xs ${d.sslProvisioned ? "text-green-600" : "text-gray-400"}`}>
+                      <ShieldCheck className="h-3 w-3" />
+                      {d.sslProvisioned ? "SSL Active" : "SSL Pending"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => verifyDomain.mutate(d.id)}
+                  disabled={verifyDomain.isPending}
+                >
+                  {verifyDomain.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Verify"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (window.confirm(`Remove domain "${d.domain}"?`)) {
+                      removeDomain.mutate(d.id);
+                    }
+                  }}
+                  disabled={removeDomain.isPending}
+                >
+                  <Trash2 className="h-3 w-3 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Instructions */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="flex items-start gap-2">
+          <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+          <div className="text-xs text-blue-800 space-y-1">
+            <p className="font-medium">How to set up a custom domain:</p>
+            <ol className="list-decimal list-inside space-y-0.5">
+              <li>Go to your DNS provider (Cloudflare, GoDaddy, Namecheap, etc.)</li>
+              <li>Add a <strong>CNAME</strong> record for your subdomain pointing to <code className="bg-blue-100 px-1 rounded">billing.empcloud.com</code></li>
+              <li>Come back here and click "Verify" to confirm DNS propagation</li>
+              <li>SSL will be provisioned automatically once DNS is verified</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      {/* Add Domain Modal */}
+      <Modal open={showAddModal} onClose={() => setShowAddModal(false)} title="Add Custom Domain">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Domain</label>
+            <Input
+              placeholder="billing.yourdomain.com"
+              value={newDomain}
+              onChange={(e) => setNewDomain(e.target.value)}
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Enter the subdomain you want to use (e.g. billing.example.com)
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancel</Button>
+            <Button onClick={handleAdd} disabled={addDomain.isPending || !newDomain.trim()}>
+              {addDomain.isPending ? "Adding..." : "Add Domain"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 // ---------- Main Settings Page ----------
 
 export function SettingsPage() {
@@ -1731,6 +1870,7 @@ export function SettingsPage() {
       {tab === "email" && <EmailTemplatesTab />}
       {tab === "scheduled-reports" && <ScheduledReportsTab />}
       {tab === "dunning" && <DunningSettingsTab />}
+      {tab === "domains" && <DomainsTab />}
     </div>
   );
 }

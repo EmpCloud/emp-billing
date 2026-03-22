@@ -6,7 +6,10 @@ import * as disputeService from "../../services/dispute/dispute.service";
 
 export async function portalLogin(req: Request, res: Response): Promise<void> {
   const { email, token } = req.body;
-  const result = await portalService.portalLogin(email, token);
+  // When the request comes from a custom domain, pass the org context
+  // so the login is scoped to that organization.
+  const domainOrgId = req.domainOrg?.orgId;
+  const result = await portalService.portalLogin(email, token, domainOrgId);
   res.json({ success: true, data: result });
 }
 

@@ -618,6 +618,20 @@ export const CouponFilterSchema = PaginationSchema.extend({
 });
 
 // ============================================================================
+// CUSTOM DOMAIN
+// ============================================================================
+
+export const AddDomainSchema = z.object({
+  domain: z
+    .string()
+    .min(1, "Domain is required")
+    .regex(
+      /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/,
+      "Invalid domain format — use lowercase letters, numbers, hyphens, and dots (e.g. billing.example.com)"
+    ),
+});
+
+// ============================================================================
 // PLAN
 // ============================================================================
 
