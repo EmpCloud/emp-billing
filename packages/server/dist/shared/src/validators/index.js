@@ -7,13 +7,14 @@ const index_1 = require("../types/index");
 // ============================================================================
 // PRIMITIVES
 // ============================================================================
+const alphaWithSpaces = /^[A-Za-z\s\-'.]+$/;
 exports.AddressSchema = zod_1.z.object({
     line1: zod_1.z.string().min(1, "Address line 1 is required"),
     line2: zod_1.z.string().optional(),
-    city: zod_1.z.string().min(1, "City is required"),
-    state: zod_1.z.string().min(1, "State is required"),
+    city: zod_1.z.string().min(1, "City is required").regex(alphaWithSpaces, "City must contain only letters"),
+    state: zod_1.z.string().min(1, "State is required").regex(alphaWithSpaces, "State must contain only letters"),
     postalCode: zod_1.z.string().min(1, "Postal code is required"),
-    country: zod_1.z.string().min(2, "Country is required"),
+    country: zod_1.z.string().min(2, "Country is required").regex(alphaWithSpaces, "Country must contain only letters"),
 });
 exports.PaginationSchema = zod_1.z.object({
     page: zod_1.z.coerce.number().int().positive().default(1),
@@ -97,7 +98,7 @@ exports.ClientContactSchema = zod_1.z.object({
     isPrimary: zod_1.z.boolean().default(false),
 });
 exports.CreateClientSchema = zod_1.z.object({
-    name: zod_1.z.string().min(1, "Client name is required").max(100),
+    name: zod_1.z.string().min(1, "Client name is required").max(100).refine((v) => !/^\d+$/.test(v.trim()), "Client name cannot be purely numeric"),
     displayName: zod_1.z.string().min(1).max(100),
     email: zod_1.z.string().email("Valid email required"),
     phone: zod_1.z.string().optional(),
@@ -187,7 +188,7 @@ exports.UpdateTaxRateSchema = exports.CreateTaxRateSchema.partial();
 // ============================================================================
 exports.InvoiceItemSchema = zod_1.z.object({
     productId: zod_1.z.string().uuid().optional(),
-    name: zod_1.z.string().min(1, "Item name is required"),
+    name: zod_1.z.string().min(1, "Item name is required").refine((v) => !/^\d+$/.test(v.trim()), "Item name cannot be purely numeric"),
     description: zod_1.z.string().optional(),
     hsnCode: zod_1.z.string().optional(),
     quantity: zod_1.z.number().positive("Quantity must be positive"),

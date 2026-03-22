@@ -25,6 +25,8 @@ COPY packages/shared/tsconfig.json ./packages/shared/
 COPY packages/server/tsconfig.json ./packages/server/
 COPY packages/client/tsconfig.json ./packages/client/
 COPY packages/client/vite.config.ts ./packages/client/
+COPY packages/client/tailwind.config.js ./packages/client/
+COPY packages/client/postcss.config.js ./packages/client/
 
 # Copy source code
 COPY packages/shared/src/ ./packages/shared/src/

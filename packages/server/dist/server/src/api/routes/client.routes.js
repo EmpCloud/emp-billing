@@ -53,7 +53,7 @@ router.get("/", (0, error_middleware_1.asyncHandler)(clientController.listClient
 router.get("/:id", (0, error_middleware_1.asyncHandler)(clientController.getClient));
 router.post("/", rbac_middleware_1.requireSales, (0, validate_middleware_1.validateBody)(shared_1.CreateClientSchema), (0, error_middleware_1.asyncHandler)(clientController.createClient));
 router.put("/:id", rbac_middleware_1.requireSales, (0, validate_middleware_1.validateBody)(shared_1.UpdateClientSchema), (0, error_middleware_1.asyncHandler)(clientController.updateClient));
-router.delete("/:id", rbac_middleware_1.requireAccountant, (0, error_middleware_1.asyncHandler)(clientController.deleteClient));
+router.delete("/:id", rbac_middleware_1.requireSales, (0, error_middleware_1.asyncHandler)(clientController.deleteClient));
 // Contacts
 router.get("/:id/contacts", (0, error_middleware_1.asyncHandler)(clientController.listContacts));
 router.post("/:id/contacts", rbac_middleware_1.requireSales, (0, error_middleware_1.asyncHandler)(clientController.addContact));

@@ -60,11 +60,10 @@ if [ "${DB_AUTO_MIGRATE}" = "true" ]; then
   echo "Migrations complete."
 fi
 
-# Run seeds if enabled (useful for first-time setup)
+# Run seeds if enabled — only if no users exist (first-time setup)
 if [ "${DB_AUTO_SEED}" = "true" ]; then
-  echo "Running database seeds..."
-  node packages/server/dist/server/src/db/seed.js
-  echo "Seeding complete."
+  echo "Running seeds (idempotent — skips if data exists)..."
+  node packages/server/dist/server/src/db/seed.js || echo "Seeding skipped or failed (non-fatal)."
 fi
 
 echo "Starting emp-billing server..."

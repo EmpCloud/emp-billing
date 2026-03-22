@@ -13,6 +13,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DB_AUTO_MIGRATE: "true"
+      DB_AUTO_SEED: "true"
       CORS_ORIGIN: "https://hyperconscientiously-uncognisable-ozell.ngrok-free.dev"
     ports: ["4001:4001"]
     volumes:

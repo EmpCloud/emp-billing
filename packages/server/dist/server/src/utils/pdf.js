@@ -24,10 +24,29 @@ handlebars_1.default.registerHelper("inc", (index) => index + 1);
 handlebars_1.default.registerHelper("subtract", (a, b) => (a ?? 0) - (b ?? 0));
 // Cache compiled templates
 const templateCache = new Map();
+/**
+ * Resolve the templates directory.
+ * In dev: __dirname = src/utils → ../templates = src/templates
+ * In prod: __dirname = dist/utils → ../templates = dist/templates (may not exist)
+ * Fallback: look relative to process.cwd() in packages/server/src/templates
+ */
+function getTemplatesDir() {
+    const candidates = [
+        path_1.default.join(__dirname, "../templates"),
+        path_1.default.join(process.cwd(), "src/templates"),
+        path_1.default.join(process.cwd(), "packages/server/src/templates"),
+    ];
+    for (const dir of candidates) {
+        if (fs_1.default.existsSync(dir))
+            return dir;
+    }
+    return candidates[0]; // fallback, will error on read
+}
+const TEMPLATES_DIR = getTemplatesDir();
 function loadTemplate(name) {
     if (templateCache.has(name))
         return templateCache.get(name);
-    const templatePath = path_1.default.join(__dirname, "../templates", `${name}.hbs`);
+    const templatePath = path_1.default.join(TEMPLATES_DIR, `${name}.hbs`);
     const source = fs_1.default.readFileSync(templatePath, "utf-8");
     const compiled = handlebars_1.default.compile(source);
     templateCache.set(name, compiled);

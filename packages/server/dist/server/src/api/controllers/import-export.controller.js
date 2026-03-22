@@ -38,6 +38,7 @@ exports.importClients = importClients;
 exports.exportProducts = exportProducts;
 exports.importProducts = importProducts;
 const csvService = __importStar(require("../../services/import-export/csv.service"));
+const AppError_1 = require("../../utils/AppError");
 // ============================================================================
 // IMPORT / EXPORT CONTROLLER
 // ============================================================================
@@ -50,6 +51,8 @@ async function exportClients(req, res) {
 }
 async function importClients(req, res) {
     const { csv } = req.body;
+    if (!csv)
+        throw (0, AppError_1.BadRequestError)("CSV data is required — send { csv: \"...\" }");
     const result = await csvService.importClientsCSV(req.user.orgId, csv);
     res.json({ success: true, data: result });
 }
@@ -62,6 +65,8 @@ async function exportProducts(req, res) {
 }
 async function importProducts(req, res) {
     const { csv } = req.body;
+    if (!csv)
+        throw (0, AppError_1.BadRequestError)("CSV data is required — send { csv: \"...\" }");
     const result = await csvService.importProductsCSV(req.user.orgId, csv);
     res.json({ success: true, data: result });
 }

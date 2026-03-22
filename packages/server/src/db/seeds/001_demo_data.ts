@@ -8,6 +8,13 @@ import dayjs from "dayjs";
 // ============================================================================
 
 export async function seed(knex: Knex): Promise<void> {
+  // Skip seeding if data already exists
+  const existing = await knex("users").count("* as cnt").first();
+  if (existing && Number(existing.cnt) > 0) {
+    console.log("Seed skipped — data already exists (" + existing.cnt + " users)");
+    return;
+  }
+
   // Wipe in reverse FK order
   await knex("audit_logs").del();
   await knex("client_portal_access").del();

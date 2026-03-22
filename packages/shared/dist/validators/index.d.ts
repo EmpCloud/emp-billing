@@ -307,7 +307,7 @@ export declare const ClientContactSchema: z.ZodObject<{
     isPrimary?: boolean | undefined;
 }>;
 export declare const CreateClientSchema: z.ZodObject<{
-    name: z.ZodString;
+    name: z.ZodEffects<z.ZodString, string, string>;
     displayName: z.ZodString;
     email: z.ZodString;
     phone: z.ZodOptional<z.ZodString>;
@@ -459,7 +459,7 @@ export declare const CreateClientSchema: z.ZodObject<{
     customFields?: Record<string, string> | undefined;
 }>;
 export declare const UpdateClientSchema: z.ZodObject<{
-    name: z.ZodOptional<z.ZodString>;
+    name: z.ZodOptional<z.ZodEffects<z.ZodString, string, string>>;
     displayName: z.ZodOptional<z.ZodString>;
     email: z.ZodOptional<z.ZodString>;
     phone: z.ZodOptional<z.ZodOptional<z.ZodString>>;
@@ -934,7 +934,7 @@ export declare const UpdateTaxRateSchema: z.ZodObject<{
 }>;
 export declare const InvoiceItemSchema: z.ZodObject<{
     productId: z.ZodOptional<z.ZodString>;
-    name: z.ZodString;
+    name: z.ZodEffects<z.ZodString, string, string>;
     description: z.ZodOptional<z.ZodString>;
     hsnCode: z.ZodOptional<z.ZodString>;
     quantity: z.ZodNumber;
@@ -978,7 +978,7 @@ export declare const CreateInvoiceSchema: z.ZodObject<{
     exchangeRate: z.ZodDefault<z.ZodNumber>;
     items: z.ZodArray<z.ZodObject<{
         productId: z.ZodOptional<z.ZodString>;
-        name: z.ZodString;
+        name: z.ZodEffects<z.ZodString, string, string>;
         description: z.ZodOptional<z.ZodString>;
         hsnCode: z.ZodOptional<z.ZodString>;
         quantity: z.ZodNumber;
@@ -1090,7 +1090,7 @@ export declare const UpdateInvoiceSchema: z.ZodObject<{
     exchangeRate: z.ZodOptional<z.ZodDefault<z.ZodNumber>>;
     items: z.ZodOptional<z.ZodArray<z.ZodObject<{
         productId: z.ZodOptional<z.ZodString>;
-        name: z.ZodString;
+        name: z.ZodEffects<z.ZodString, string, string>;
         description: z.ZodOptional<z.ZodString>;
         hsnCode: z.ZodOptional<z.ZodString>;
         quantity: z.ZodNumber;
@@ -1264,7 +1264,7 @@ export declare const CreateQuoteSchema: z.ZodObject<{
     currency: z.ZodDefault<z.ZodString>;
     items: z.ZodArray<z.ZodObject<{
         productId: z.ZodOptional<z.ZodString>;
-        name: z.ZodString;
+        name: z.ZodEffects<z.ZodString, string, string>;
         description: z.ZodOptional<z.ZodString>;
         hsnCode: z.ZodOptional<z.ZodString>;
         quantity: z.ZodNumber;
@@ -1355,7 +1355,7 @@ export declare const UpdateQuoteSchema: z.ZodObject<{
     currency: z.ZodOptional<z.ZodDefault<z.ZodString>>;
     items: z.ZodOptional<z.ZodArray<z.ZodObject<{
         productId: z.ZodOptional<z.ZodString>;
-        name: z.ZodString;
+        name: z.ZodEffects<z.ZodString, string, string>;
         description: z.ZodOptional<z.ZodString>;
         hsnCode: z.ZodOptional<z.ZodString>;
         quantity: z.ZodNumber;
@@ -1543,7 +1543,7 @@ export declare const CreateCreditNoteSchema: z.ZodObject<{
     date: z.ZodDate;
     items: z.ZodArray<z.ZodObject<{
         productId: z.ZodOptional<z.ZodString>;
-        name: z.ZodString;
+        name: z.ZodEffects<z.ZodString, string, string>;
         description: z.ZodOptional<z.ZodString>;
         hsnCode: z.ZodOptional<z.ZodString>;
         quantity: z.ZodNumber;

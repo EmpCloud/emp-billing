@@ -67,13 +67,20 @@ async function getInvoice(req, res) {
     res.json({ success: true, data: invoice });
 }
 async function createInvoice(req, res) {
-    const { autoSend, ...input } = req.body;
+    const { autoSend, attachments, ...input } = req.body;
     const invoice = await invoiceService.createInvoice(req.user.orgId, req.user.id, input);
-    // If autoSend is true, immediately send the invoice after creation
+    // If autoSend is true, attempt to send — but don't fail the creation
     if (autoSend === true) {
-        const sentInvoice = await invoiceService.sendInvoice(req.user.orgId, invoice.id);
-        res.status(201).json({ success: true, data: { ...invoice, ...sentInvoice } });
-        return;
+        try {
+            const sentInvoice = await invoiceService.sendInvoice(req.user.orgId, invoice.id);
+            res.status(201).json({ success: true, data: { ...invoice, ...sentInvoice } });
+            return;
+        }
+        catch {
+            // Send failed but invoice was created — return it anyway
+            res.status(201).json({ success: true, data: invoice });
+            return;
+        }
     }
     res.status(201).json({ success: true, data: invoice });
 }

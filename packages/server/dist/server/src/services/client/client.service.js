@@ -29,7 +29,13 @@ async function listClients(orgId, opts) {
         limit: opts.limit,
         orderBy: [{ column: "name", direction: "asc" }],
     });
-    let data = result.data;
+    let data = result.data.map((c) => ({
+        ...c,
+        tags: typeof c.tags === "string" ? safeParseJSON(c.tags, []) : (c.tags ?? []),
+        billingAddress: typeof c.billingAddress === "string" ? safeParseJSON(c.billingAddress, null) : c.billingAddress,
+        shippingAddress: typeof c.shippingAddress === "string" ? safeParseJSON(c.shippingAddress, null) : c.shippingAddress,
+        customFields: typeof c.customFields === "string" ? safeParseJSON(c.customFields, null) : c.customFields,
+    }));
     if (opts.search) {
         const q = opts.search.toLowerCase();
         data = data.filter((c) => c.name.toLowerCase().includes(q) ||
@@ -39,8 +45,13 @@ async function listClients(orgId, opts) {
     if (opts.tags) {
         const filterTags = opts.tags.split(",").map((t) => t.trim().toLowerCase());
         data = data.filter((c) => {
-            const clientTags = Array.isArray(c.tags) ? c.tags : [];
-            return filterTags.some((t) => clientTags.includes(t));
+            const raw = c.tags;
+            const clientTags = Array.isArray(raw)
+                ? raw
+                : typeof raw === "string"
+                    ? safeParseJSON(raw, [])
+                    : [];
+            return filterTags.some((ft) => clientTags.some((ct) => ct.toLowerCase().includes(ft)));
         });
     }
     return { ...result, data };
@@ -50,6 +61,15 @@ async function getClient(orgId, id) {
     const client = await db.findById("clients", id, orgId);
     if (!client)
         throw (0, AppError_1.NotFoundError)("Client");
+    // Parse JSON string fields returned from DB
+    if (typeof client.billingAddress === "string")
+        client.billingAddress = safeParseJSON(client.billingAddress, null);
+    if (typeof client.shippingAddress === "string")
+        client.shippingAddress = safeParseJSON(client.shippingAddress, null);
+    if (typeof client.tags === "string")
+        client.tags = safeParseJSON(client.tags, []);
+    if (typeof client.customFields === "string")
+        client.customFields = safeParseJSON(client.customFields, null);
     const contacts = await db.findMany("client_contacts", {
         where: { client_id: id },
         orderBy: [{ column: "is_primary", direction: "desc" }],
@@ -264,5 +284,14 @@ async function removePaymentMethod(orgId, clientId) {
         updatedAt: new Date(),
     }, orgId);
     return (await db.findById("clients", clientId, orgId));
+}
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function safeParseJSON(value, fallback) {
+    try {
+        return JSON.parse(value);
+    }
+    catch {
+        return fallback;
+    }
 }
 //# sourceMappingURL=client.service.js.map
