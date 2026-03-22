@@ -54,21 +54,34 @@ export function DashboardLayout() {
         )}
       >
         {/* Logo */}
-        <div className="flex items-center h-14 px-3 border-b border-gray-700/50">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="flex-shrink-0 w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
+        <div className={clsx(
+          "flex items-center h-14 border-b border-gray-700/50",
+          sidebarOpen ? "px-3 justify-between" : "px-0 justify-center"
+        )}>
+          {sidebarOpen ? (
+            <>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex-shrink-0 w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">EB</span>
+                </div>
+                <span className="font-semibold text-sm truncate">EMP Billing</span>
+              </div>
+              <button
+                onClick={toggleSidebar}
+                className="flex-shrink-0 p-1 rounded hover:bg-gray-700 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={toggleSidebar}
+              className="w-10 h-10 bg-brand-600 rounded-lg flex items-center justify-center hover:bg-brand-700 transition-colors"
+              title="Expand sidebar"
+            >
               <span className="text-white font-bold text-sm">EB</span>
-            </div>
-            {sidebarOpen && (
-              <span className="font-semibold text-sm truncate">EMP Billing</span>
-            )}
-          </div>
-          <button
-            onClick={toggleSidebar}
-            className="ml-auto flex-shrink-0 p-1 rounded hover:bg-gray-700 transition-colors"
-          >
-            {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-          </button>
+            </button>
+          )}
         </div>
 
         {/* Nav */}
