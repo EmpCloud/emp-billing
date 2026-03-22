@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
+import * as aws from "@aws-sdk/client-ses";
 import Handlebars from "handlebars";
 import fs from "fs";
 import path from "path";
@@ -15,10 +16,8 @@ let transporter: Transporter | null = null;
 
 // ── Transport ───────────────────────────────────────────────────────────────
 
-export function createTransport(): Transporter {
-  if (transporter) return transporter;
-
-  transporter = nodemailer.createTransport({
+function createSmtpTransport(): Transporter {
+  return nodemailer.createTransport({
     host: config.smtp.host,
     port: config.smtp.port,
     secure: config.smtp.port === 465,
@@ -27,9 +26,83 @@ export function createTransport(): Transporter {
       pass: config.smtp.password,
     },
   });
+}
 
-  logger.info("Nodemailer transport created", { host: config.smtp.host, port: config.smtp.port });
+function createSendGridTransport(): Transporter {
+  return nodemailer.createTransport({
+    host: "smtp.sendgrid.net",
+    port: 587,
+    secure: false,
+    auth: {
+      user: "apikey",
+      pass: config.sendgrid.apiKey,
+    },
+  });
+}
+
+function createSesTransport(): Transporter {
+  const ses = new aws.SES({
+    region: config.ses.region,
+    credentials: {
+      accessKeyId: config.ses.accessKey,
+      secretAccessKey: config.ses.secretKey,
+    },
+  });
+  return nodemailer.createTransport({
+    SES: { ses, aws },
+  } as unknown as nodemailer.TransportOptions);
+}
+
+export function createTransport(): Transporter {
+  if (transporter) return transporter;
+
+  const provider = config.email.provider;
+
+  switch (provider) {
+    case "sendgrid":
+      transporter = createSendGridTransport();
+      logger.info("Nodemailer transport created", { provider: "sendgrid", host: "smtp.sendgrid.net" });
+      break;
+    case "ses":
+      transporter = createSesTransport();
+      logger.info("Nodemailer transport created", { provider: "ses", region: config.ses.region });
+      break;
+    case "smtp":
+    default:
+      transporter = createSmtpTransport();
+      logger.info("Nodemailer transport created", { provider: "smtp", host: config.smtp.host, port: config.smtp.port });
+      break;
+  }
+
   return transporter;
+}
+
+/**
+ * Log email configuration status on startup.
+ * Call once during server bootstrap.
+ */
+export function logEmailConfig(): void {
+  const provider = config.email.provider;
+
+  if (provider === "sendgrid" && config.sendgrid.apiKey) {
+    logger.info("Email: SendGrid configured");
+    return;
+  }
+
+  if (provider === "ses" && config.ses.accessKey) {
+    logger.info("Email: AWS SES configured", { region: config.ses.region });
+    return;
+  }
+
+  // SMTP provider — check if it looks like production
+  const host = config.smtp.host.toLowerCase();
+  const isDevHost = !host || host === "localhost" || host === "127.0.0.1" || host.includes("mailpit") || host.includes("mailtrap");
+
+  if (!isDevHost) {
+    logger.info("Email: production SMTP configured", { host: config.smtp.host, port: config.smtp.port });
+  } else {
+    logger.info("Email: development mode (Mailpit)");
+  }
 }
 
 // ── Template helpers ────────────────────────────────────────────────────────

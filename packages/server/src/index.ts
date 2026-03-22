@@ -47,6 +47,7 @@ import { domainResolution } from "./api/middleware/domain.middleware";
 import { registerListeners } from "./events/listeners";
 import { startWorkers } from "./jobs/index";
 import { setupSwagger } from "./api/docs/swagger";
+import { logEmailConfig } from "./services/notification/email.service";
 
 const app = express();
 
@@ -138,6 +139,7 @@ if (config.env === "production") {
 async function bootstrap() {
   try {
     await getDB(); // connect + verify
+    logEmailConfig(); // log email provider status
     registerListeners(); // wire up event system
     initializeGateways(); // register configured payment gateways
     await startWorkers(); // start BullMQ workers + scheduled jobs

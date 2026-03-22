@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { FileText, Download, CreditCard } from "lucide-react";
 import {
   usePortalInvoices,
@@ -178,8 +179,21 @@ function PayNowModal({
 export function PortalInvoicesPage() {
   const [page, setPage] = useState(1);
   const { data: res, isLoading } = usePortalInvoices({ page, limit: 20 });
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [payInvoice, setPayInvoice] = useState<Invoice | null>(null);
+
+  // Show toast when returning from Stripe Checkout (or any hosted gateway)
+  useEffect(() => {
+    const paymentStatus = searchParams.get("payment");
+    if (paymentStatus === "success") {
+      toast.success("Payment completed successfully! Your invoice will be updated shortly.");
+      setSearchParams({}, { replace: true });
+    } else if (paymentStatus === "cancelled") {
+      toast("Payment was cancelled.", { icon: "\u26A0\uFE0F" });
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const invoices = (res?.data ?? []) as Invoice[];
   const meta = res?.meta;

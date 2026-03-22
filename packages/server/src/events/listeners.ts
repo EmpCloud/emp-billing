@@ -6,6 +6,7 @@ import type { WebhookEvent } from "@emp-billing/shared";
 import {
   sendInvoiceEmail,
   sendPaymentReceiptEmail,
+  sendPaymentReminderEmail,
 } from "../services/notification/email.service";
 import { createNotification } from "../services/notification/notification.service";
 
@@ -80,6 +81,40 @@ export function registerListeners(): void {
         (err) => {
           logger.error("Failed to send payment receipt email", {
             paymentId: payload.paymentId,
+            err,
+          });
+        },
+      );
+    }
+  });
+
+  // ── Invoice created → send invoice email with PDF attachment ────────────
+  on("invoice.created", (payload) => {
+    const clientEmail = (payload.invoice as Record<string, unknown>).clientEmail as string
+      ?? (payload.invoice as Record<string, unknown>).client_email as string
+      ?? undefined;
+    if (clientEmail) {
+      sendInvoiceEmail(payload.orgId, payload.invoiceId, clientEmail).catch(
+        (err) => {
+          logger.error("Failed to send invoice email on creation", {
+            invoiceId: payload.invoiceId,
+            err,
+          });
+        },
+      );
+    }
+  });
+
+  // ── Invoice overdue → send overdue reminder email ─────────────────────
+  on("invoice.overdue", (payload) => {
+    const clientEmail = (payload.invoice as Record<string, unknown>).clientEmail as string
+      ?? (payload.invoice as Record<string, unknown>).client_email as string
+      ?? undefined;
+    if (clientEmail) {
+      sendPaymentReminderEmail(payload.orgId, payload.invoiceId, clientEmail).catch(
+        (err) => {
+          logger.error("Failed to send overdue reminder email", {
+            invoiceId: payload.invoiceId,
             err,
           });
         },

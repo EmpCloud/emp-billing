@@ -50,6 +50,9 @@ export const config = {
   },
 
   // Email
+  email: {
+    provider: optional("EMAIL_PROVIDER", "smtp") as "smtp" | "sendgrid" | "ses",
+  },
   smtp: {
     host: optional("SMTP_HOST", "smtp.mailtrap.io"),
     port: parseInt(optional("SMTP_PORT", "587")),
@@ -57,6 +60,14 @@ export const config = {
     password: optional("SMTP_PASSWORD", ""),
     from: optional("SMTP_FROM", "billing@empcloud.io"),
     fromName: optional("SMTP_FROM_NAME", "EMP Billing"),
+  },
+  sendgrid: {
+    apiKey: optional("SENDGRID_API_KEY", ""),
+  },
+  ses: {
+    region: optional("AWS_SES_REGION", "us-east-1"),
+    accessKey: optional("AWS_SES_ACCESS_KEY", ""),
+    secretKey: optional("AWS_SES_SECRET_KEY", ""),
   },
 
   // File storage

@@ -11,6 +11,7 @@
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.1014.0",
     "@emp-billing/shared": "workspace:*",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",

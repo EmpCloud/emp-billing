@@ -59,10 +59,15 @@ export class StripeGateway implements IPaymentGateway {
         invoiceId: input.invoiceId,
         invoiceNumber: input.invoiceNumber,
         clientName: input.clientName,
-        ...(input.metadata || {}),
+        orgId: input.metadata?.orgId || "",
+        clientId: input.metadata?.clientId || "",
       },
-      success_url: `${input.metadata?.successUrl || "{CHECKOUT_SESSION_ID}"}`,
-      cancel_url: `${input.metadata?.cancelUrl || "{CHECKOUT_SESSION_ID}"}`,
+      success_url: input.metadata?.successUrl
+        ? `${input.metadata.successUrl}${input.metadata.successUrl.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`
+        : `${input.metadata?.portalBaseUrl || "http://localhost:5174/portal"}/invoices?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: input.metadata?.cancelUrl
+        ? `${input.metadata.cancelUrl}`
+        : `${input.metadata?.portalBaseUrl || "http://localhost:5174/portal"}/invoices?payment=cancelled`,
     });
 
     logger.info(`Stripe checkout session created: ${session.id} for invoice ${input.invoiceNumber}`);
@@ -206,6 +211,8 @@ export class StripeGateway implements IPaymentGateway {
             customerEmail: session.customer_email,
             invoiceId: session.metadata?.invoiceId,
             invoiceNumber: session.metadata?.invoiceNumber,
+            orgId: session.metadata?.orgId,
+            clientId: session.metadata?.clientId,
           },
         };
       }

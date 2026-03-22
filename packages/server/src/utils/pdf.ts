@@ -116,6 +116,39 @@ const CREDIT_NOTE_STATUS_LABEL: Record<string, string> = {
   [CreditNoteStatus.VOID]: "Void",
 };
 
+// ── Org branding helper ───────────────────────────────────────────────────
+
+/**
+ * Extract a normalised branding context from the raw org record so templates
+ * can reference `orgBrand.*` without deeply-nested `{{org.address.line1}}`.
+ * Falls back to sensible defaults when fields are missing.
+ */
+function buildOrgBranding(org: Record<string, unknown>) {
+  const colors = (org.brandColors ?? org.brand_colors ?? {}) as Record<string, string>;
+  const addr = (org.address ?? {}) as Record<string, string>;
+
+  // Build a single formatted address string for templates that want it
+  const addressParts: string[] = [];
+  if (addr.line1) addressParts.push(addr.line1);
+  if (addr.line2) addressParts.push(addr.line2);
+  const cityState = [addr.city, addr.state, addr.postalCode].filter(Boolean).join(", ");
+  if (cityState) addressParts.push(cityState);
+  if (addr.country) addressParts.push(addr.country);
+
+  return {
+    name: (org.name as string) ?? "",
+    email: (org.email as string) ?? "",
+    phone: (org.phone as string) ?? "",
+    website: (org.website as string) ?? "",
+    logo: (org.logo as string) ?? "",
+    taxId: (org.taxId as string) ?? (org.tax_id as string) ?? "",
+    gstin: (org.gstin as string) ?? (org.taxId as string) ?? (org.tax_id as string) ?? "",
+    address: addr,
+    formattedAddress: addressParts.join(", "),
+    brandPrimary: colors.primary ?? "#4f46e5",
+  };
+}
+
 // ── Main PDF generation ────────────────────────────────────────────────────
 
 export interface InvoicePdfData {
@@ -127,12 +160,14 @@ export interface InvoicePdfData {
 
 export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
   const template = loadTemplate("invoice");
+  const orgBrand = buildOrgBranding(data.org);
 
   const html = template({
     ...data,
+    orgBrand,
     statusClass: STATUS_CLASS[(data.invoice.status as string)] ?? "draft",
     statusLabel: STATUS_LABEL[(data.invoice.status as string)] ?? String(data.invoice.status),
-    brandPrimary: ((data.org.brandColors as Record<string, string>)?.primary) ?? "#4f46e5",
+    brandPrimary: orgBrand.brandPrimary,
     hasFooter: !!(data.invoice.notes || data.invoice.terms),
   });
 
@@ -169,12 +204,14 @@ export interface QuotePdfData {
 
 export async function generateQuotePdf(data: QuotePdfData): Promise<Buffer> {
   const template = loadTemplate("quote");
+  const orgBrand = buildOrgBranding(data.org);
 
   const html = template({
     ...data,
+    orgBrand,
     statusClass: QUOTE_STATUS_CLASS[(data.quote.status as string)] ?? "draft",
     statusLabel: QUOTE_STATUS_LABEL[(data.quote.status as string)] ?? String(data.quote.status),
-    brandPrimary: ((data.org.brandColors as Record<string, string>)?.primary) ?? "#4f46e5",
+    brandPrimary: orgBrand.brandPrimary,
     hasFooter: !!(data.quote.notes || data.quote.terms),
   });
 
@@ -211,12 +248,14 @@ export interface CreditNotePdfData {
 
 export async function generateCreditNotePdf(data: CreditNotePdfData): Promise<Buffer> {
   const template = loadTemplate("credit-note");
+  const orgBrand = buildOrgBranding(data.org);
 
   const html = template({
     ...data,
+    orgBrand,
     statusClass: CREDIT_NOTE_STATUS_CLASS[(data.creditNote.status as string)] ?? "draft",
     statusLabel: CREDIT_NOTE_STATUS_LABEL[(data.creditNote.status as string)] ?? String(data.creditNote.status),
-    brandPrimary: ((data.org.brandColors as Record<string, string>)?.primary) ?? "#4f46e5",
+    brandPrimary: orgBrand.brandPrimary,
   });
 
   const browser = await puppeteer.launch({
@@ -252,10 +291,12 @@ export interface ReceiptPdfData {
 
 export async function generateReceiptPdf(data: ReceiptPdfData): Promise<Buffer> {
   const template = loadTemplate("receipt");
+  const orgBrand = buildOrgBranding(data.org);
 
   const html = template({
     ...data,
-    brandPrimary: ((data.org.brandColors as Record<string, string>)?.primary) ?? "#4f46e5",
+    orgBrand,
+    brandPrimary: orgBrand.brandPrimary,
   });
 
   const browser = await puppeteer.launch({

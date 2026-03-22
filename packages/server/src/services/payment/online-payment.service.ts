@@ -7,6 +7,7 @@ import { emit } from "../../events/index";
 import type { Invoice, Client } from "@emp-billing/shared";
 import type { WebhookResult } from "./gateways/IPaymentGateway";
 import { logger } from "../../utils/logger";
+import { config } from "../../config/index";
 
 // ============================================================================
 // ONLINE PAYMENT SERVICE
@@ -53,6 +54,11 @@ export async function createPaymentOrder(
 
   const gateway = getGateway(gatewayName);
 
+  // Build portal base URL from CORS origin (the client app origin)
+  const portalBaseUrl = `${config.corsOrigin}/portal`;
+  const successUrl = process.env.STRIPE_SUCCESS_URL || `${portalBaseUrl}/invoices?payment=success`;
+  const cancelUrl = process.env.STRIPE_CANCEL_URL || `${portalBaseUrl}/invoices?payment=cancelled`;
+
   const result = await gateway.createOrder({
     amount: invoice.amountDue,
     currency: invoice.currency,
@@ -65,6 +71,9 @@ export async function createPaymentOrder(
       orgId,
       invoiceId: invoice.id,
       clientId: client.id,
+      successUrl,
+      cancelUrl,
+      portalBaseUrl,
     },
   });
 
