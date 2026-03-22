@@ -7,6 +7,7 @@ export async function listExpenses(req: Request, res: Response): Promise<void> {
     page: parseInt(query.page || "1"),
     limit: parseInt(query.limit || "20"),
     sortOrder: (query.sortOrder as "asc" | "desc") || "desc",
+    search: query.search || undefined,
     categoryId: query.categoryId,
     clientId: query.clientId,
     status: query.status as Parameters<typeof expenseService.listExpenses>[1]["status"],

@@ -300,12 +300,12 @@ describe("expense.service", () => {
   // ── deleteExpense ────────────────────────────────────────────────────────
 
   describe("deleteExpense", () => {
-    it("soft-deletes a PENDING expense", async () => {
+    it("deletes a PENDING expense", async () => {
       mockDb.findById.mockResolvedValue(makeExpense({ status: ExpenseStatus.PENDING }));
 
       await deleteExpense(ORG_ID, EXPENSE_ID);
 
-      expect(mockDb.softDelete).toHaveBeenCalledWith("expenses", EXPENSE_ID, ORG_ID);
+      expect(mockDb.delete).toHaveBeenCalledWith("expenses", EXPENSE_ID, ORG_ID);
     });
 
     it("throws NotFoundError when expense does not exist", async () => {

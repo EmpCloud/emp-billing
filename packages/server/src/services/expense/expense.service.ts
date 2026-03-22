@@ -48,6 +48,16 @@ export async function listExpenses(
     });
   }
 
+  // Text search filtering on description and vendor name
+  if (opts.search) {
+    const q = opts.search.toLowerCase();
+    data = data.filter(
+      (e) =>
+        e.description?.toLowerCase().includes(q) ||
+        e.vendorName?.toLowerCase().includes(q)
+    );
+  }
+
   return { ...result, data };
 }
 
@@ -131,7 +141,7 @@ export async function deleteExpense(orgId: string, id: string): Promise<void> {
     throw BadRequestError("Only expenses with PENDING status can be deleted");
   }
 
-  await db.softDelete("expenses", id, orgId);
+  await db.delete("expenses", id, orgId);
 }
 
 export async function approveExpense(

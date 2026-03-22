@@ -50,6 +50,7 @@ async function listExpenses(req, res) {
         page: parseInt(query.page || "1"),
         limit: parseInt(query.limit || "20"),
         sortOrder: query.sortOrder || "desc",
+        search: query.search || undefined,
         categoryId: query.categoryId,
         clientId: query.clientId,
         status: query.status,

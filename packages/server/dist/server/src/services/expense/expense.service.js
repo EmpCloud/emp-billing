@@ -51,6 +51,12 @@ async function listExpenses(orgId, opts) {
             return true;
         });
     }
+    // Text search filtering on description and vendor name
+    if (opts.search) {
+        const q = opts.search.toLowerCase();
+        data = data.filter((e) => e.description?.toLowerCase().includes(q) ||
+            e.vendorName?.toLowerCase().includes(q));
+    }
     return { ...result, data };
 }
 async function getExpense(orgId, id) {
@@ -118,7 +124,7 @@ async function deleteExpense(orgId, id) {
     if (existing.status !== shared_1.ExpenseStatus.PENDING) {
         throw (0, AppError_1.BadRequestError)("Only expenses with PENDING status can be deleted");
     }
-    await db.softDelete("expenses", id, orgId);
+    await db.delete("expenses", id, orgId);
 }
 async function approveExpense(orgId, id, userId) {
     const db = await (0, index_1.getDB)();

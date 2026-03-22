@@ -1823,6 +1823,7 @@ export declare const ExpenseFilterSchema: z.ZodObject<{
     sortBy: z.ZodOptional<z.ZodString>;
     sortOrder: z.ZodDefault<z.ZodEnum<["asc", "desc"]>>;
 } & {
+    search: z.ZodOptional<z.ZodString>;
     categoryId: z.ZodOptional<z.ZodString>;
     clientId: z.ZodOptional<z.ZodString>;
     status: z.ZodOptional<z.ZodNativeEnum<typeof ExpenseStatus>>;
@@ -1835,6 +1836,7 @@ export declare const ExpenseFilterSchema: z.ZodObject<{
     sortOrder: "asc" | "desc";
     status?: ExpenseStatus | undefined;
     sortBy?: string | undefined;
+    search?: string | undefined;
     clientId?: string | undefined;
     from?: Date | undefined;
     to?: Date | undefined;
@@ -1846,6 +1848,7 @@ export declare const ExpenseFilterSchema: z.ZodObject<{
     limit?: number | undefined;
     sortBy?: string | undefined;
     sortOrder?: "asc" | "desc" | undefined;
+    search?: string | undefined;
     clientId?: string | undefined;
     from?: Date | undefined;
     to?: Date | undefined;

@@ -341,6 +341,7 @@ exports.CreateExpenseSchema = zod_1.z.object({
 });
 exports.UpdateExpenseSchema = exports.CreateExpenseSchema.partial();
 exports.ExpenseFilterSchema = exports.PaginationSchema.extend({
+    search: zod_1.z.string().optional(),
     categoryId: zod_1.z.string().uuid().optional(),
     clientId: zod_1.z.string().uuid().optional(),
     status: zod_1.z.nativeEnum(index_1.ExpenseStatus).optional(),

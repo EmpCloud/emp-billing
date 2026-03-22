@@ -400,6 +400,7 @@ export const CreateExpenseSchema = z.object({
 export const UpdateExpenseSchema = CreateExpenseSchema.partial();
 
 export const ExpenseFilterSchema = PaginationSchema.extend({
+  search: z.string().optional(),
   categoryId: z.string().uuid().optional(),
   clientId: z.string().uuid().optional(),
   status: z.nativeEnum(ExpenseStatus).optional(),
