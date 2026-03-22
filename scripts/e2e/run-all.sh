@@ -14,7 +14,11 @@ echo "  EMP Billing — Full E2E Test Suite"
 echo "=============================================="
 echo ""
 
+# Flush Redis rate limit counters before each suite
+REDIS_FLUSH="docker exec emp-billing-redis redis-cli FLUSHDB"
+
 for test_file in scripts/e2e/*.test.ts; do
+  $REDIS_FLUSH > /dev/null 2>&1
   suite=$(basename "$test_file" .test.ts)
   echo "── Running: $suite ──────────────────────────"
 
