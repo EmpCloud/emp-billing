@@ -702,6 +702,10 @@ export const ChangeSubscriptionPlanSchema = z.object({
   prorate: z.boolean().default(false),
 });
 
+export const PreviewPlanChangeSchema = z.object({
+  newPlanId: z.string().uuid("Valid plan ID required"),
+});
+
 export const CancelSubscriptionSchema = z.object({
   reason: z.string().optional(),
   cancelImmediately: z.boolean().default(false),

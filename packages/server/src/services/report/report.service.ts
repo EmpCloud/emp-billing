@@ -1,14 +1,26 @@
 import { getDB } from "../../db/adapters/index";
 import { InvoiceStatus } from "@emp-billing/shared";
+import type { Organization } from "@emp-billing/shared";
 
 // ============================================================================
 // REPORT SERVICE
+// All monetary aggregations convert to the org's base currency using the
+// exchange_rate stored on each invoice at creation time.
 // ============================================================================
+
+// ── Helper: get org base currency ──────────────────────────────────────────
+
+async function getBaseCurrency(orgId: string): Promise<string> {
+  const db = await getDB();
+  const org = await db.findById<Organization>("organizations", orgId);
+  return org?.defaultCurrency ?? "INR";
+}
 
 // ── Dashboard Stats ─────────────────────────────────────────────────────────
 
 export async function getDashboardStats(orgId: string) {
   const db = await getDB();
+  const baseCurrency = await getBaseCurrency(orgId);
 
   // Invoice counts by status
   const statusCounts = await db.raw<{ status: string; count: number }[]>(
@@ -21,24 +33,27 @@ export async function getDashboardStats(orgId: string) {
     countMap[row.status] = Number(row.count);
   }
 
-  // Total revenue (sum of paid invoices)
+  // Total revenue (sum of paid invoices, converted to base currency via exchange_rate)
   const [revenueRow] = await db.raw<{ total: number }[]>(
-    `SELECT COALESCE(SUM(total), 0) as total FROM invoices WHERE org_id = ? AND status = ?`,
+    `SELECT COALESCE(SUM(total * COALESCE(exchange_rate, 1)), 0) as total
+     FROM invoices WHERE org_id = ? AND status = ?`,
     [orgId, InvoiceStatus.PAID]
   );
   const totalRevenue = Number(revenueRow?.total ?? 0);
 
-  // Total outstanding (amount_due on non-void, non-written-off, non-paid invoices)
+  // Total outstanding (amount_due converted to base currency)
   const [outstandingRow] = await db.raw<{ total: number }[]>(
-    `SELECT COALESCE(SUM(amount_due), 0) as total FROM invoices
+    `SELECT COALESCE(SUM(amount_due * COALESCE(exchange_rate, 1)), 0) as total
+     FROM invoices
      WHERE org_id = ? AND status NOT IN (?, ?, ?)`,
     [orgId, InvoiceStatus.PAID, InvoiceStatus.VOID, InvoiceStatus.WRITTEN_OFF]
   );
   const totalOutstanding = Number(outstandingRow?.total ?? 0);
 
-  // Total overdue
+  // Total overdue (converted)
   const [overdueRow] = await db.raw<{ total: number }[]>(
-    `SELECT COALESCE(SUM(amount_due), 0) as total FROM invoices
+    `SELECT COALESCE(SUM(amount_due * COALESCE(exchange_rate, 1)), 0) as total
+     FROM invoices
      WHERE org_id = ? AND status = ?`,
     [orgId, InvoiceStatus.OVERDUE]
   );
@@ -63,7 +78,7 @@ export async function getDashboardStats(orgId: string) {
     [orgId]
   );
 
-  // Receivables aging
+  // Receivables aging (converted to base currency)
   const agingBuckets = await db.raw<{ bucket: string; total: number }[]>(
     `SELECT
        CASE
@@ -73,7 +88,7 @@ export async function getDashboardStats(orgId: string) {
          WHEN DATEDIFF(CURDATE(), due_date) BETWEEN 61 AND 90 THEN '61-90'
          ELSE '90+'
        END as bucket,
-       COALESCE(SUM(amount_due), 0) as total
+       COALESCE(SUM(amount_due * COALESCE(exchange_rate, 1)), 0) as total
      FROM invoices
      WHERE org_id = ? AND status NOT IN (?, ?, ?)
      GROUP BY bucket`,
@@ -92,6 +107,7 @@ export async function getDashboardStats(orgId: string) {
       totalOutstanding,
       totalOverdue,
       totalExpenses,
+      baseCurrency,
       recentInvoices,
       recentPayments,
       receivablesAging: {
@@ -109,9 +125,11 @@ export async function getDashboardStats(orgId: string) {
 
 export async function getRevenueReport(orgId: string, from: Date, to: Date) {
   const db = await getDB();
+  const baseCurrency = await getBaseCurrency(orgId);
 
   const rows = await db.raw<{ month: string; revenue: number }[]>(
-    `SELECT DATE_FORMAT(paid_at, '%Y-%m') as month, COALESCE(SUM(total), 0) as revenue
+    `SELECT DATE_FORMAT(paid_at, '%Y-%m') as month,
+            COALESCE(SUM(total * COALESCE(exchange_rate, 1)), 0) as revenue
      FROM invoices
      WHERE org_id = ? AND status = ? AND paid_at >= ? AND paid_at <= ?
      GROUP BY month
@@ -119,17 +137,21 @@ export async function getRevenueReport(orgId: string, from: Date, to: Date) {
     [orgId, InvoiceStatus.PAID, from, to]
   );
 
-  return { data: rows.map((r) => ({ month: r.month, revenue: Number(r.revenue) })) };
+  return {
+    data: rows.map((r) => ({ month: r.month, revenue: Number(r.revenue) })),
+    baseCurrency,
+  };
 }
 
 // ── Receivables Report ──────────────────────────────────────────────────────
 
 export async function getReceivablesReport(orgId: string) {
   const db = await getDB();
+  const baseCurrency = await getBaseCurrency(orgId);
 
   const rows = await db.raw<{ client_id: string; client_name: string; total_outstanding: number; invoice_count: number }[]>(
     `SELECT i.client_id, c.name as client_name,
-            COALESCE(SUM(i.amount_due), 0) as total_outstanding,
+            COALESCE(SUM(i.amount_due * COALESCE(i.exchange_rate, 1)), 0) as total_outstanding,
             COUNT(*) as invoice_count
      FROM invoices i
      JOIN clients c ON c.id = i.client_id
@@ -146,6 +168,7 @@ export async function getReceivablesReport(orgId: string) {
       totalOutstanding: Number(r.total_outstanding),
       invoiceCount: Number(r.invoice_count),
     })),
+    baseCurrency,
   };
 }
 
@@ -153,6 +176,7 @@ export async function getReceivablesReport(orgId: string) {
 
 export async function getAgingReport(orgId: string) {
   const db = await getDB();
+  const baseCurrency = await getBaseCurrency(orgId);
 
   const rows = await db.raw<{
     client_id: string;
@@ -165,11 +189,11 @@ export async function getAgingReport(orgId: string) {
   }[]>(
     `SELECT
        i.client_id, c.name as client_name,
-       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) <= 0 THEN i.amount_due ELSE 0 END), 0) as current,
-       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 1 AND 30 THEN i.amount_due ELSE 0 END), 0) as days_1_30,
-       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 31 AND 60 THEN i.amount_due ELSE 0 END), 0) as days_31_60,
-       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 61 AND 90 THEN i.amount_due ELSE 0 END), 0) as days_61_90,
-       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) > 90 THEN i.amount_due ELSE 0 END), 0) as days_90_plus
+       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) <= 0 THEN i.amount_due * COALESCE(i.exchange_rate, 1) ELSE 0 END), 0) as current,
+       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 1 AND 30 THEN i.amount_due * COALESCE(i.exchange_rate, 1) ELSE 0 END), 0) as days_1_30,
+       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 31 AND 60 THEN i.amount_due * COALESCE(i.exchange_rate, 1) ELSE 0 END), 0) as days_31_60,
+       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) BETWEEN 61 AND 90 THEN i.amount_due * COALESCE(i.exchange_rate, 1) ELSE 0 END), 0) as days_61_90,
+       COALESCE(SUM(CASE WHEN DATEDIFF(CURDATE(), i.due_date) > 90 THEN i.amount_due * COALESCE(i.exchange_rate, 1) ELSE 0 END), 0) as days_90_plus
      FROM invoices i
      JOIN clients c ON c.id = i.client_id
      WHERE i.org_id = ? AND i.status NOT IN (?, ?, ?)
@@ -188,6 +212,7 @@ export async function getAgingReport(orgId: string) {
       days61to90: Number(r.days_61_90),
       days90plus: Number(r.days_90_plus),
     })),
+    baseCurrency,
   };
 }
 
@@ -222,10 +247,12 @@ export async function getExpenseReport(orgId: string, from: Date, to: Date) {
 
 export async function getProfitLossReport(orgId: string, from: Date, to: Date) {
   const db = await getDB();
+  const baseCurrency = await getBaseCurrency(orgId);
 
-  // Monthly revenue from paid invoices
+  // Monthly revenue from paid invoices (converted to base currency)
   const revenueRows = await db.raw<{ month: string; total: number }[]>(
-    `SELECT DATE_FORMAT(paid_at, '%Y-%m') as month, COALESCE(SUM(total), 0) as total
+    `SELECT DATE_FORMAT(paid_at, '%Y-%m') as month,
+            COALESCE(SUM(total * COALESCE(exchange_rate, 1)), 0) as total
      FROM invoices
      WHERE org_id = ? AND status = ? AND paid_at >= ? AND paid_at <= ?
      GROUP BY month
@@ -264,7 +291,7 @@ export async function getProfitLossReport(orgId: string, from: Date, to: Date) {
       profit: vals.revenue - vals.expenses,
     }));
 
-  return { data };
+  return { data, baseCurrency };
 }
 
 // ── Tax Report ─────────────────────────────────────────────────────────
@@ -361,10 +388,11 @@ export async function getTaxReport(orgId: string, from?: Date, to?: Date) {
 
 export async function getTopClients(orgId: string, from: Date, to: Date, limit = 10) {
   const db = await getDB();
+  const baseCurrency = await getBaseCurrency(orgId);
 
   const rows = await db.raw<{ client_id: string; client_name: string; revenue: number; invoice_count: number }[]>(
     `SELECT i.client_id, c.name as client_name,
-            COALESCE(SUM(i.total), 0) as revenue,
+            COALESCE(SUM(i.total * COALESCE(i.exchange_rate, 1)), 0) as revenue,
             COUNT(*) as invoice_count
      FROM invoices i
      JOIN clients c ON c.id = i.client_id
@@ -382,5 +410,6 @@ export async function getTopClients(orgId: string, from: Date, to: Date, limit =
       revenue: Number(r.revenue),
       invoiceCount: Number(r.invoice_count),
     })),
+    baseCurrency,
   };
 }

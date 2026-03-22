@@ -8,6 +8,7 @@ import {
   Users,
   Percent,
   Download,
+  FileText,
 } from "lucide-react";
 import dayjs from "dayjs";
 import { formatMoney } from "@emp-billing/shared";
@@ -19,10 +20,13 @@ import {
   useProfitLossReport,
   useTaxReport,
   useTopClients,
+  useGSTR1Report,
   exportRevenueReportCsv,
   exportReceivablesReportCsv,
   exportExpenseReportCsv,
   exportTaxReportCsv,
+  exportGSTR1JSON,
+  exportGSTR1CSV,
 } from "@/api/hooks/report.hooks";
 import toast from "react-hot-toast";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -32,7 +36,7 @@ import { StatsCard } from "@/components/common/StatsCard";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Input } from "@/components/common/Input";
 
-type Tab = "revenue" | "receivables" | "aging" | "expenses" | "pnl" | "tax";
+type Tab = "revenue" | "receivables" | "aging" | "expenses" | "pnl" | "tax" | "gstr1";
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "revenue", label: "Revenue", icon: <TrendingUp className="h-4 w-4" /> },
@@ -41,6 +45,7 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "expenses", label: "Expenses", icon: <Receipt className="h-4 w-4" /> },
   { key: "pnl", label: "P&L", icon: <BarChart3 className="h-4 w-4" /> },
   { key: "tax", label: "Tax", icon: <Percent className="h-4 w-4" /> },
+  { key: "gstr1", label: "GSTR-1", icon: <FileText className="h-4 w-4" /> },
 ];
 
 function DateRangeFilter({
@@ -593,6 +598,393 @@ function TaxTab({ from, to }: { from: string; to: string }) {
   );
 }
 
+function GSTR1Tab() {
+  const currentMonth = dayjs().format("YYYY-MM");
+  const [period, setPeriod] = useState(currentMonth);
+  const [gstr1Section, setGstr1Section] = useState<"b2b" | "b2cl" | "b2cs" | "cdnr" | "hsn" | "docs">("b2b");
+  const { data, isLoading } = useGSTR1Report(period);
+  const gstr1 = data?.data;
+
+  const handleExportJSON = async () => {
+    try {
+      await exportGSTR1JSON(period);
+    } catch {
+      toast.error("Failed to export GSTR-1 JSON");
+    }
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      await exportGSTR1CSV(period, gstr1Section);
+    } catch {
+      toast.error("Failed to export GSTR-1 CSV");
+    }
+  };
+
+  const sections = [
+    { key: "b2b" as const, label: "B2B", count: gstr1?.summary?.b2bCount ?? 0 },
+    { key: "b2cl" as const, label: "B2C Large", count: gstr1?.summary?.b2clCount ?? 0 },
+    { key: "b2cs" as const, label: "B2C Small", count: gstr1?.summary?.b2csCount ?? 0 },
+    { key: "cdnr" as const, label: "Credit/Debit Notes", count: gstr1?.summary?.cdnrCount ?? 0 },
+    { key: "hsn" as const, label: "HSN Summary", count: gstr1?.hsn?.length ?? 0 },
+    { key: "docs" as const, label: "Documents", count: gstr1?.docs?.length ?? 0 },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Period selector and export buttons */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-44">
+          <Input
+            label="Filing Period"
+            type="month"
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+          />
+        </div>
+        <Button variant="primary" size="sm" icon={<Download className="h-4 w-4" />} onClick={handleExportJSON}>
+          Download JSON (GST Portal)
+        </Button>
+        <Button variant="ghost" size="sm" icon={<Download className="h-4 w-4" />} onClick={handleExportCSV}>
+          Download CSV ({sections.find((s) => s.key === gstr1Section)?.label})
+        </Button>
+      </div>
+
+      {isLoading && <LoadingBlock />}
+
+      {!isLoading && !gstr1 && (
+        <EmptyState
+          icon={<FileText className="h-12 w-12" />}
+          title="No GSTR-1 data"
+          description="Select a period to generate GSTR-1 data for filing."
+        />
+      )}
+
+      {!isLoading && gstr1 && (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            <StatsCard
+              label="Taxable Value"
+              value={formatMoney(Math.round(gstr1.summary.totalTaxableValue * 100), "INR")}
+              icon={<DollarSign className="h-5 w-5" />}
+              color="default"
+            />
+            <StatsCard
+              label="IGST"
+              value={formatMoney(Math.round(gstr1.summary.totalIgst * 100), "INR")}
+              icon={<Percent className="h-5 w-5" />}
+              color="yellow"
+            />
+            <StatsCard
+              label="CGST"
+              value={formatMoney(Math.round(gstr1.summary.totalCgst * 100), "INR")}
+              icon={<Percent className="h-5 w-5" />}
+              color="blue"
+            />
+            <StatsCard
+              label="SGST"
+              value={formatMoney(Math.round(gstr1.summary.totalSgst * 100), "INR")}
+              icon={<Percent className="h-5 w-5" />}
+              color="purple"
+            />
+            <StatsCard
+              label="Total Tax"
+              value={formatMoney(Math.round(gstr1.summary.totalTax * 100), "INR")}
+              icon={<Percent className="h-5 w-5" />}
+              color="green"
+            />
+            <StatsCard
+              label="Invoice Value"
+              value={formatMoney(Math.round(gstr1.summary.totalInvoiceValue * 100), "INR")}
+              icon={<FileText className="h-5 w-5" />}
+              color="default"
+            />
+            <StatsCard
+              label="B2B Invoices"
+              value={String(gstr1.summary.b2bCount)}
+              icon={<FileText className="h-5 w-5" />}
+              color="blue"
+            />
+          </div>
+
+          {/* Section tabs */}
+          <div className="flex flex-wrap gap-1 bg-gray-100 p-1 rounded-lg">
+            {sections.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setGstr1Section(s.key)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  gstr1Section === s.key
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                {s.label} ({s.count})
+              </button>
+            ))}
+          </div>
+
+          {/* Section content */}
+          {gstr1Section === "b2b" && <GSTR1B2BTable data={gstr1.b2b} />}
+          {gstr1Section === "b2cl" && <GSTR1B2CLTable data={gstr1.b2cl} />}
+          {gstr1Section === "b2cs" && <GSTR1B2CSTable data={gstr1.b2cs} />}
+          {gstr1Section === "cdnr" && <GSTR1CDNRTable data={gstr1.cdnr} />}
+          {gstr1Section === "hsn" && <GSTR1HSNTable data={gstr1.hsn} />}
+          {gstr1Section === "docs" && <GSTR1DocsTable data={gstr1.docs} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── GSTR-1 Section Tables ─────────────────────────────────────────────────
+
+function GSTR1B2BTable({ data }: { data: { recipientGstin: string; recipientName: string; invoices: { invoiceNumber: string; invoiceDate: string; invoiceValue: number; placeOfSupplyName: string; reverseCharge: boolean; items: { rate: number; taxableValue: number; igstAmount: number; cgstAmount: number; sgstAmount: number }[] }[] }[] }) {
+  if (data.length === 0) return <p className="text-sm text-gray-500 py-4 text-center">No B2B invoices for this period.</p>;
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50">
+            <th className="px-3 py-2 text-left font-medium text-gray-500">GSTIN</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Recipient</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Invoice No</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Date</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Value</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Place of Supply</th>
+            <th className="px-3 py-2 text-center font-medium text-gray-500">RC</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Rate</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Taxable</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">IGST</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">CGST</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">SGST</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {data.flatMap((entry) =>
+            entry.invoices.flatMap((inv) =>
+              inv.items.map((ri, idx) => (
+                <tr key={`${entry.recipientGstin}-${inv.invoiceNumber}-${idx}`} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-3 py-2 text-gray-600 font-mono text-xs">{entry.recipientGstin}</td>
+                  <td className="px-3 py-2 text-gray-700">{entry.recipientName}</td>
+                  <td className="px-3 py-2 text-gray-700">{inv.invoiceNumber}</td>
+                  <td className="px-3 py-2 text-gray-600">{inv.invoiceDate}</td>
+                  <td className="px-3 py-2 text-right font-medium">{formatRupees(inv.invoiceValue)}</td>
+                  <td className="px-3 py-2 text-gray-600">{inv.placeOfSupplyName}</td>
+                  <td className="px-3 py-2 text-center">{inv.reverseCharge ? "Y" : "N"}</td>
+                  <td className="px-3 py-2 text-right text-gray-600">{ri.rate}%</td>
+                  <td className="px-3 py-2 text-right font-medium">{formatRupees(ri.taxableValue)}</td>
+                  <td className="px-3 py-2 text-right text-amber-600">{formatRupees(ri.igstAmount)}</td>
+                  <td className="px-3 py-2 text-right text-blue-600">{formatRupees(ri.cgstAmount)}</td>
+                  <td className="px-3 py-2 text-right text-brand-600">{formatRupees(ri.sgstAmount)}</td>
+                </tr>
+              ))
+            )
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GSTR1B2CLTable({ data }: { data: { placeOfSupplyName: string; invoiceNumber: string; invoiceDate: string; invoiceValue: number; rate: number; taxableValue: number; igstAmount: number }[] }) {
+  if (data.length === 0) return <p className="text-sm text-gray-500 py-4 text-center">No B2C Large invoices for this period.</p>;
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50">
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Invoice No</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Date</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Value</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Place of Supply</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Rate</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Taxable</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">IGST</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {data.map((e, i) => (
+            <tr key={i} className="hover:bg-gray-50 transition-colors">
+              <td className="px-3 py-2 text-gray-700">{e.invoiceNumber}</td>
+              <td className="px-3 py-2 text-gray-600">{e.invoiceDate}</td>
+              <td className="px-3 py-2 text-right font-medium">{formatRupees(e.invoiceValue)}</td>
+              <td className="px-3 py-2 text-gray-600">{e.placeOfSupplyName}</td>
+              <td className="px-3 py-2 text-right text-gray-600">{e.rate}%</td>
+              <td className="px-3 py-2 text-right font-medium">{formatRupees(e.taxableValue)}</td>
+              <td className="px-3 py-2 text-right text-amber-600">{formatRupees(e.igstAmount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GSTR1B2CSTable({ data }: { data: { placeOfSupplyName: string; taxType: string; rate: number; taxableValue: number; igstAmount: number; cgstAmount: number; sgstAmount: number }[] }) {
+  if (data.length === 0) return <p className="text-sm text-gray-500 py-4 text-center">No B2C Small supplies for this period.</p>;
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50">
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Place of Supply</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Type</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Rate</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Taxable</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">IGST</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">CGST</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">SGST</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {data.map((e, i) => (
+            <tr key={i} className="hover:bg-gray-50 transition-colors">
+              <td className="px-3 py-2 text-gray-700">{e.placeOfSupplyName}</td>
+              <td className="px-3 py-2 text-gray-600">{e.taxType}</td>
+              <td className="px-3 py-2 text-right text-gray-600">{e.rate}%</td>
+              <td className="px-3 py-2 text-right font-medium">{formatRupees(e.taxableValue)}</td>
+              <td className="px-3 py-2 text-right text-amber-600">{formatRupees(e.igstAmount)}</td>
+              <td className="px-3 py-2 text-right text-blue-600">{formatRupees(e.cgstAmount)}</td>
+              <td className="px-3 py-2 text-right text-brand-600">{formatRupees(e.sgstAmount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GSTR1CDNRTable({ data }: { data: { recipientGstin: string; recipientName: string; noteNumber: string; noteDate: string; noteType: string; originalInvoiceNumber: string; noteValue: number; items: { rate: number; taxableValue: number; igstAmount: number; cgstAmount: number; sgstAmount: number }[] }[] }) {
+  if (data.length === 0) return <p className="text-sm text-gray-500 py-4 text-center">No credit/debit notes for this period.</p>;
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50">
+            <th className="px-3 py-2 text-left font-medium text-gray-500">GSTIN</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Recipient</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Note No</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Date</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Type</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Orig Invoice</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Value</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Rate</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Taxable</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">IGST</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">CGST</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">SGST</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {data.flatMap((cn) =>
+            cn.items.map((ri, idx) => (
+              <tr key={`${cn.noteNumber}-${idx}`} className="hover:bg-gray-50 transition-colors">
+                <td className="px-3 py-2 text-gray-600 font-mono text-xs">{cn.recipientGstin}</td>
+                <td className="px-3 py-2 text-gray-700">{cn.recipientName}</td>
+                <td className="px-3 py-2 text-gray-700">{cn.noteNumber}</td>
+                <td className="px-3 py-2 text-gray-600">{cn.noteDate}</td>
+                <td className="px-3 py-2 text-gray-600">{cn.noteType === "C" ? "Credit" : "Debit"}</td>
+                <td className="px-3 py-2 text-gray-600">{cn.originalInvoiceNumber}</td>
+                <td className="px-3 py-2 text-right font-medium">{formatRupees(cn.noteValue)}</td>
+                <td className="px-3 py-2 text-right text-gray-600">{ri.rate}%</td>
+                <td className="px-3 py-2 text-right font-medium">{formatRupees(ri.taxableValue)}</td>
+                <td className="px-3 py-2 text-right text-amber-600">{formatRupees(ri.igstAmount)}</td>
+                <td className="px-3 py-2 text-right text-blue-600">{formatRupees(ri.cgstAmount)}</td>
+                <td className="px-3 py-2 text-right text-brand-600">{formatRupees(ri.sgstAmount)}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GSTR1HSNTable({ data }: { data: { hsnCode: string; description: string; uqc: string; quantity: number; taxableValue: number; rate: number; igstAmount: number; cgstAmount: number; sgstAmount: number; totalValue: number }[] }) {
+  if (data.length === 0) return <p className="text-sm text-gray-500 py-4 text-center">No HSN data for this period.</p>;
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50">
+            <th className="px-3 py-2 text-left font-medium text-gray-500">HSN Code</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Description</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">UQC</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Qty</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Taxable</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Rate</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">IGST</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">CGST</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">SGST</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Total</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {data.map((h, i) => (
+            <tr key={i} className="hover:bg-gray-50 transition-colors">
+              <td className="px-3 py-2 text-gray-700 font-mono text-xs">{h.hsnCode}</td>
+              <td className="px-3 py-2 text-gray-700">{h.description}</td>
+              <td className="px-3 py-2 text-gray-600 text-xs">{h.uqc}</td>
+              <td className="px-3 py-2 text-right text-gray-600">{h.quantity}</td>
+              <td className="px-3 py-2 text-right font-medium">{formatRupees(h.taxableValue)}</td>
+              <td className="px-3 py-2 text-right text-gray-600">{h.rate}%</td>
+              <td className="px-3 py-2 text-right text-amber-600">{formatRupees(h.igstAmount)}</td>
+              <td className="px-3 py-2 text-right text-blue-600">{formatRupees(h.cgstAmount)}</td>
+              <td className="px-3 py-2 text-right text-brand-600">{formatRupees(h.sgstAmount)}</td>
+              <td className="px-3 py-2 text-right font-semibold">{formatRupees(h.totalValue)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GSTR1DocsTable({ data }: { data: { documentType: string; fromNumber: string; toNumber: string; totalIssued: number; totalCancelled: number; netIssued: number }[] }) {
+  if (data.length === 0) return <p className="text-sm text-gray-500 py-4 text-center">No document summary for this period.</p>;
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50">
+            <th className="px-3 py-2 text-left font-medium text-gray-500">Document Type</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">From</th>
+            <th className="px-3 py-2 text-left font-medium text-gray-500">To</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Total Issued</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Cancelled</th>
+            <th className="px-3 py-2 text-right font-medium text-gray-500">Net Issued</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {data.map((d, i) => (
+            <tr key={i} className="hover:bg-gray-50 transition-colors">
+              <td className="px-3 py-2 text-gray-700">{d.documentType}</td>
+              <td className="px-3 py-2 text-gray-600 font-mono text-xs">{d.fromNumber}</td>
+              <td className="px-3 py-2 text-gray-600 font-mono text-xs">{d.toNumber}</td>
+              <td className="px-3 py-2 text-right font-medium">{d.totalIssued}</td>
+              <td className="px-3 py-2 text-right text-red-600">{d.totalCancelled}</td>
+              <td className="px-3 py-2 text-right font-semibold">{d.netIssued}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Format a rupee amount (already in rupees, not paise) for display */
+function formatRupees(amount: number): string {
+  return `₹${amount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function TopClientsCard({ from, to }: { from: string; to: string }) {
   const { data, isLoading } = useTopClients(
     from || undefined,
@@ -647,6 +1039,7 @@ export function ReportsPage() {
   const [to, setTo] = useState(defaultTo);
 
   const needsDateRange = tab === "revenue" || tab === "expenses" || tab === "pnl" || tab === "tax";
+  const isGstr1 = tab === "gstr1";
 
   return (
     <div className="p-6">
@@ -693,6 +1086,7 @@ export function ReportsPage() {
           {tab === "expenses" && <ExpensesTab from={from} to={to} />}
           {tab === "pnl" && <ProfitLossTab from={from} to={to} />}
           {tab === "tax" && <TaxTab from={from} to={to} />}
+          {tab === "gstr1" && <GSTR1Tab />}
         </div>
 
         {/* Sidebar */}

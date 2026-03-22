@@ -122,6 +122,128 @@ export function useTopClients(from?: string, to?: string) {
   });
 }
 
+// ── GSTR-1 types ────────────────────────────────────────────────────────────
+
+export interface GSTR1RateItem {
+  rate: number;
+  taxableValue: number;
+  igstAmount: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  cessAmount: number;
+}
+
+export interface GSTR1B2BInvoice {
+  recipientGstin: string;
+  recipientName: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  invoiceValue: number;
+  placeOfSupply: string;
+  placeOfSupplyName: string;
+  reverseCharge: boolean;
+  invoiceType: string;
+  items: GSTR1RateItem[];
+}
+
+export interface GSTR1B2BEntry {
+  recipientGstin: string;
+  recipientName: string;
+  invoices: GSTR1B2BInvoice[];
+}
+
+export interface GSTR1B2CLEntry {
+  placeOfSupply: string;
+  placeOfSupplyName: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  invoiceValue: number;
+  rate: number;
+  taxableValue: number;
+  igstAmount: number;
+  cessAmount: number;
+}
+
+export interface GSTR1B2CSEntry {
+  placeOfSupply: string;
+  placeOfSupplyName: string;
+  taxType: string;
+  rate: number;
+  taxableValue: number;
+  igstAmount: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  cessAmount: number;
+}
+
+export interface GSTR1CDNEntry {
+  recipientGstin: string;
+  recipientName: string;
+  noteNumber: string;
+  noteDate: string;
+  noteType: string;
+  originalInvoiceNumber: string;
+  originalInvoiceDate: string;
+  noteValue: number;
+  items: GSTR1RateItem[];
+}
+
+export interface GSTR1HSNEntry {
+  hsnCode: string;
+  description: string;
+  uqc: string;
+  quantity: number;
+  taxableValue: number;
+  rate: number;
+  igstAmount: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  cessAmount: number;
+  totalValue: number;
+}
+
+export interface GSTR1DocSummary {
+  documentType: string;
+  fromNumber: string;
+  toNumber: string;
+  totalIssued: number;
+  totalCancelled: number;
+  netIssued: number;
+}
+
+export interface GSTR1Data {
+  period: string;
+  gstin: string;
+  orgName: string;
+  b2b: GSTR1B2BEntry[];
+  b2cl: GSTR1B2CLEntry[];
+  b2cs: GSTR1B2CSEntry[];
+  cdnr: GSTR1CDNEntry[];
+  hsn: GSTR1HSNEntry[];
+  docs: GSTR1DocSummary[];
+  summary: {
+    totalTaxableValue: number;
+    totalIgst: number;
+    totalCgst: number;
+    totalSgst: number;
+    totalCess: number;
+    totalTax: number;
+    totalInvoiceValue: number;
+    b2bCount: number;
+    b2clCount: number;
+    b2csCount: number;
+    cdnrCount: number;
+  };
+}
+
+export function useGSTR1Report(period?: string) {
+  return useQuery({
+    queryKey: [REPORTS_KEY, "gstr1", period],
+    queryFn: () => apiGet<GSTR1Data>("/reports/gstr1", { period }),
+    enabled: !!period,
+  });
+}
+
 // ── CSV export helpers ────────────────────────────────────────────────────────
 
 function triggerDownload(blob: Blob, filename: string) {
@@ -164,4 +286,20 @@ export async function exportTaxReportCsv(from?: string, to?: string) {
     responseType: "blob",
   });
   triggerDownload(res.data, "tax-report.csv");
+}
+
+export async function exportGSTR1JSON(period: string) {
+  const res = await api.get("/reports/gstr1/json", {
+    params: { period },
+    responseType: "blob",
+  });
+  triggerDownload(res.data, `GSTR1_${period}.json`);
+}
+
+export async function exportGSTR1CSV(period: string, section: string) {
+  const res = await api.get("/reports/gstr1/csv", {
+    params: { period, section },
+    responseType: "blob",
+  });
+  triggerDownload(res.data, `GSTR1_${section}_${period}.csv`);
 }

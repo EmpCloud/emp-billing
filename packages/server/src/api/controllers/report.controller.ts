@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import * as reportService from "../../services/report/report.service";
+import * as gstr1Service from "../../services/tax/gstr1.service";
 
 // ── CSV helpers ──────────────────────────────────────────────────────────────
 
@@ -120,4 +121,51 @@ export async function exportTaxReport(req: Request, res: Response): Promise<void
     r.taxRateName, r.taxRateType, r.rate, r.taxableAmount, r.cgst, r.sgst, r.igst, r.totalTax, r.invoiceCount,
   ]);
   sendCsv(res, "tax-report.csv", toCsv(headers, rows));
+}
+
+// ── GSTR-1 Endpoints ─────────────────────────────────────────────────────────
+
+export async function getGSTR1(req: Request, res: Response): Promise<void> {
+  const q = req.query as Record<string, string>;
+  const period = q.period; // YYYY-MM
+  if (!period) {
+    res.status(400).json({ success: false, error: { code: "MISSING_PERIOD", message: "period query parameter is required (YYYY-MM)" } });
+    return;
+  }
+  const data = await gstr1Service.generateGSTR1(req.user!.orgId, period);
+  res.json({ success: true, data });
+}
+
+export async function getGSTR1JSON(req: Request, res: Response): Promise<void> {
+  const q = req.query as Record<string, string>;
+  const period = q.period;
+  if (!period) {
+    res.status(400).json({ success: false, error: { code: "MISSING_PERIOD", message: "period query parameter is required (YYYY-MM)" } });
+    return;
+  }
+  const data = await gstr1Service.generateGSTR1(req.user!.orgId, period);
+  const portalJSON = gstr1Service.toGSTPortalJSON(data);
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="GSTR1_${data.gstin}_${data.period}.json"`);
+  res.send(JSON.stringify(portalJSON, null, 2));
+}
+
+export async function getGSTR1CSV(req: Request, res: Response): Promise<void> {
+  const q = req.query as Record<string, string>;
+  const period = q.period;
+  const section = q.section ?? "b2b"; // default to B2B section
+  if (!period) {
+    res.status(400).json({ success: false, error: { code: "MISSING_PERIOD", message: "period query parameter is required (YYYY-MM)" } });
+    return;
+  }
+  const data = await gstr1Service.generateGSTR1(req.user!.orgId, period);
+  const csvSections = gstr1Service.toCSV(data);
+
+  const validSections = ["b2b", "b2cl", "b2cs", "cdnr", "hsn", "docs"];
+  const sectionKey = validSections.includes(section) ? section : "b2b";
+  const csvContent = csvSections[sectionKey] ?? "";
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="GSTR1_${sectionKey}_${data.period}.csv"`);
+  res.send(csvContent);
 }

@@ -7,10 +7,13 @@ import {
   SubscriptionStatus,
   SubscriptionEventType,
   InvoiceStatus,
+  CreditNoteStatus,
 } from "@emp-billing/shared";
 import { nextInvoiceNumber } from "../../utils/number-generator";
 import { emit } from "../../events/index";
-import type { Plan, Subscription, SubscriptionEvent } from "@emp-billing/shared";
+import { calculateProration } from "./proration.service";
+import type { Plan, Subscription, SubscriptionEvent, ProrationPreview } from "@emp-billing/shared";
+import type { ProrationResult } from "./proration.service";
 import type { z } from "zod";
 import type {
   CreatePlanSchema,
@@ -19,6 +22,7 @@ import type {
   ChangeSubscriptionPlanSchema,
   CancelSubscriptionSchema,
   SubscriptionFilterSchema,
+  PreviewPlanChangeSchema,
 } from "@emp-billing/shared";
 
 // ============================================================================
@@ -383,6 +387,41 @@ export async function createSubscription(
   return getSubscription(orgId, id);
 }
 
+// ── Preview Plan Change (Proration) ─────────────────────────────────────────
+
+export async function previewPlanChange(
+  orgId: string,
+  subscriptionId: string,
+  input: z.infer<typeof PreviewPlanChangeSchema>
+): Promise<ProrationPreview> {
+  const db = await getDB();
+
+  const subscription = await db.findById<Subscription>("subscriptions", subscriptionId, orgId);
+  if (!subscription) throw NotFoundError("Subscription");
+
+  if (![SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING].includes(subscription.status)) {
+    throw BadRequestError("Can only preview plan change for active or trialing subscriptions");
+  }
+
+  const currentPlan = await getPlan(orgId, subscription.planId);
+  const newPlan = await getPlan(orgId, input.newPlanId);
+  if (!newPlan.isActive) throw BadRequestError("New plan is not active");
+
+  const proration = calculateProration(subscription, currentPlan, newPlan);
+
+  return {
+    unusedCredit: proration.unusedCredit,
+    newCharge: proration.newCharge,
+    netAmount: proration.netAmount,
+    daysRemaining: proration.daysRemaining,
+    daysTotal: proration.daysTotal,
+    currentPlanPrice: proration.currentPlanPrice,
+    newPlanPrice: proration.newPlanPrice,
+    isUpgrade: proration.isUpgrade,
+    currency: proration.currency,
+  };
+}
+
 // ── Change Plan ─────────────────────────────────────────────────────────────
 
 export async function changePlan(
@@ -406,28 +445,16 @@ export async function changePlan(
   const now = new Date();
   const prorate = input.prorate ?? false;
 
-  // If prorate and currently active (not trialing), calculate prorated invoice
+  // If prorate and currently active (not trialing), use the proration engine
   if (prorate && subscription.status === SubscriptionStatus.ACTIVE && subscription.currentPeriodEnd) {
-    const totalDays = daysBetween(
-      subscription.currentPeriodStart!,
-      subscription.currentPeriodEnd
-    );
-    const remainingDays = daysBetween(now, subscription.currentPeriodEnd);
+    const proration = calculateProration(subscription, oldPlan, newPlan, now);
 
-    if (totalDays > 0 && remainingDays > 0) {
-      const dailyOldRate = (oldPlan.price * subscription.quantity) / totalDays;
-      const creditAmount = Math.round(dailyOldRate * remainingDays);
-
-      const dailyNewRate = (newPlan.price * subscription.quantity) / totalDays;
-      const chargeAmount = Math.round(dailyNewRate * remainingDays);
-
-      const netAmount = chargeAmount - creditAmount;
-
-      if (netAmount !== 0) {
+    if (proration.netAmount !== 0 && proration.daysRemaining > 0) {
+      if (proration.isUpgrade) {
+        // Upgrade: create an invoice for the prorated difference
         const invoiceNumber = await nextInvoiceNumber(orgId);
         const invoiceId = uuid();
         const dueDate = dayjs(now).add(7, "day").format("YYYY-MM-DD");
-        const invoiceTotal = Math.abs(netAmount);
 
         await db.create("invoices", {
           id: invoiceId,
@@ -439,15 +466,13 @@ export async function changePlan(
           dueDate,
           currency: newPlan.currency,
           exchangeRate: 1,
-          subtotal: invoiceTotal,
-          discountAmount: 0,
+          subtotal: proration.newCharge,
+          discountAmount: proration.unusedCredit,
           taxAmount: 0,
-          total: invoiceTotal,
+          total: proration.netAmount,
           amountPaid: 0,
-          amountDue: invoiceTotal,
-          notes: netAmount > 0
-            ? `Prorated upgrade from ${oldPlan.name} to ${newPlan.name}`
-            : `Prorated downgrade credit from ${oldPlan.name} to ${newPlan.name}`,
+          amountDue: proration.netAmount,
+          notes: `Prorated upgrade from ${oldPlan.name} to ${newPlan.name} (${proration.daysRemaining} of ${proration.daysTotal} days remaining)`,
           createdBy: subscription.createdBy,
           createdAt: now,
           updatedAt: now,
@@ -458,13 +483,13 @@ export async function changePlan(
           id: uuid(),
           invoiceId,
           orgId,
-          name: `Credit - ${oldPlan.name} (${remainingDays} days unused)`,
+          name: `Credit - ${oldPlan.name} (${proration.daysRemaining} days unused)`,
           quantity: 1,
-          rate: -creditAmount,
+          rate: -proration.unusedCredit,
           discountAmount: 0,
           taxRate: 0,
           taxAmount: 0,
-          amount: -creditAmount,
+          amount: -proration.unusedCredit,
           sortOrder: 0,
         });
 
@@ -473,27 +498,66 @@ export async function changePlan(
           id: uuid(),
           invoiceId,
           orgId,
-          name: `Charge - ${newPlan.name} (${remainingDays} days remaining)`,
+          name: `Charge - ${newPlan.name} (${proration.daysRemaining} days remaining)`,
           quantity: 1,
-          rate: chargeAmount,
+          rate: proration.newCharge,
           discountAmount: 0,
           taxRate: 0,
           taxAmount: 0,
-          amount: chargeAmount,
+          amount: proration.newCharge,
           sortOrder: 1,
+        });
+      } else {
+        // Downgrade: create a credit note for the difference
+        const creditAmount = Math.abs(proration.netAmount);
+        const creditNoteId = uuid();
+        const creditNoteNumber = await generateProrationCreditNoteNumber(orgId);
+
+        await db.create("credit_notes", {
+          id: creditNoteId,
+          orgId,
+          clientId: subscription.clientId,
+          creditNoteNumber,
+          status: CreditNoteStatus.OPEN,
+          date: dayjs(now).format("YYYY-MM-DD"),
+          subtotal: creditAmount,
+          taxAmount: 0,
+          total: creditAmount,
+          balance: creditAmount,
+          reason: `Prorated downgrade from ${oldPlan.name} to ${newPlan.name} (${proration.daysRemaining} of ${proration.daysTotal} days remaining)`,
+          createdBy: subscription.createdBy,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        // Credit note line item
+        await db.create("credit_note_items", {
+          id: uuid(),
+          creditNoteId,
+          orgId,
+          name: `Downgrade credit - ${oldPlan.name} to ${newPlan.name}`,
+          description: `Unused value (${proration.daysRemaining} days) minus new plan cost for remaining period`,
+          quantity: 1,
+          rate: creditAmount,
+          discountAmount: 0,
+          taxRate: 0,
+          taxAmount: 0,
+          amount: creditAmount,
+          sortOrder: 0,
         });
       }
     }
   }
 
-  // Update subscription plan
+  // Update subscription plan immediately
   await db.update("subscriptions", subscriptionId, {
     planId: input.newPlanId,
     updatedAt: now,
   }, orgId);
 
   // Log event: upgraded or downgraded based on price comparison
-  const eventType = newPlan.price > oldPlan.price
+  const isUpgrade = newPlan.price > oldPlan.price;
+  const eventType = isUpgrade
     ? SubscriptionEventType.UPGRADED
     : SubscriptionEventType.DOWNGRADED;
 
@@ -503,7 +567,7 @@ export async function changePlan(
     metadata: { prorate, oldPrice: oldPlan.price, newPrice: newPlan.price },
   });
 
-  const changeEvent = newPlan.price > oldPlan.price ? "subscription.upgraded" : "subscription.downgraded";
+  const changeEvent = isUpgrade ? "subscription.upgraded" : "subscription.downgraded";
   emit(changeEvent, {
     orgId,
     subscriptionId,
@@ -515,6 +579,15 @@ export async function changePlan(
   });
 
   return getSubscription(orgId, subscriptionId);
+}
+
+// ── Helper: Generate proration credit note number ────────────────────────────
+
+async function generateProrationCreditNoteNumber(orgId: string): Promise<string> {
+  const db = await getDB();
+  const count = await db.count("credit_notes", { org_id: orgId });
+  const year = new Date().getFullYear();
+  return `CN-${year}-${String(count + 1).padStart(4, "0")}`;
 }
 
 // ── Cancel Subscription ─────────────────────────────────────────────────────

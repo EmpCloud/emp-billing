@@ -23,4 +23,9 @@ router.get("/receivables/export",  asyncHandler(reportController.exportReceivabl
 router.get("/expenses/export",     asyncHandler(reportController.exportExpenseReport));
 router.get("/tax/export",          asyncHandler(reportController.exportTaxReport));
 
+// GSTR-1 endpoints (Indian GST filing)
+router.get("/gstr1",               asyncHandler(reportController.getGSTR1));
+router.get("/gstr1/json",          asyncHandler(reportController.getGSTR1JSON));
+router.get("/gstr1/csv",           asyncHandler(reportController.getGSTR1CSV));
+
 export { router as reportRoutes };

@@ -285,6 +285,8 @@ describe("invoice.service", () => {
         findById: vi.fn()
           // First call: validate client
           .mockResolvedValueOnce({ id: CLIENT_ID, orgId: ORG_ID })
+          // Second call: get org for base currency
+          .mockResolvedValueOnce({ id: ORG_ID, defaultCurrency: "INR" })
           // getInvoice call at end: return invoice
           .mockResolvedValueOnce(createdInvoice),
         findMany: vi.fn().mockResolvedValue(items),
@@ -352,6 +354,7 @@ describe("invoice.service", () => {
       const mockDb = makeMockDb({
         findById: vi.fn()
           .mockResolvedValueOnce({ id: CLIENT_ID, orgId: ORG_ID })
+          .mockResolvedValueOnce({ id: ORG_ID, defaultCurrency: "INR" })
           .mockResolvedValueOnce(createdInvoice),
         findMany: vi.fn().mockResolvedValue(items),
         create: vi.fn().mockResolvedValue(createdInvoice),
@@ -405,6 +408,7 @@ describe("invoice.service", () => {
       const mockDb = makeMockDb({
         findById: vi.fn()
           .mockResolvedValueOnce({ id: CLIENT_ID, orgId: ORG_ID }) // client
+          .mockResolvedValueOnce({ id: ORG_ID, defaultCurrency: "INR" }) // org
           .mockResolvedValueOnce(product) // product lookup
           .mockResolvedValueOnce(createdInvoice), // getInvoice
         findMany: vi.fn().mockResolvedValue(items),
@@ -446,6 +450,7 @@ describe("invoice.service", () => {
       const mockDb = makeMockDb({
         findById: vi.fn()
           .mockResolvedValueOnce({ id: CLIENT_ID, orgId: ORG_ID })
+          .mockResolvedValueOnce({ id: ORG_ID, defaultCurrency: "INR" })
           .mockResolvedValueOnce(createdInvoice),
         findMany: vi.fn().mockResolvedValue(items),
         create: vi.fn().mockResolvedValue(createdInvoice),

@@ -61,6 +61,15 @@ export async function createSubscription(req: Request, res: Response): Promise<v
   res.status(201).json({ success: true, data: subscription });
 }
 
+export async function previewPlanChange(req: Request, res: Response): Promise<void> {
+  const preview = await subscriptionService.previewPlanChange(
+    req.user!.orgId,
+    req.params.id as string,
+    req.body
+  );
+  res.json({ success: true, data: preview });
+}
+
 export async function changePlan(req: Request, res: Response): Promise<void> {
   const subscription = await subscriptionService.changePlan(
     req.user!.orgId,

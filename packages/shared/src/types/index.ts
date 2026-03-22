@@ -843,6 +843,31 @@ export interface SubscriptionEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Proration
+// ---------------------------------------------------------------------------
+
+export interface ProrationPreview {
+  /** Remaining value of current plan for unused days (smallest unit) */
+  unusedCredit: number;
+  /** Cost of new plan for remaining days in the current period (smallest unit) */
+  newCharge: number;
+  /** Net amount: newCharge - unusedCredit. Positive = charge, negative = credit */
+  netAmount: number;
+  /** Days left in the current billing period */
+  daysRemaining: number;
+  /** Total days in the current billing period */
+  daysTotal: number;
+  /** Current plan price for the full period (smallest unit) */
+  currentPlanPrice: number;
+  /** New plan price for the full period (smallest unit) */
+  newPlanPrice: number;
+  /** Whether this is an upgrade (net positive) or downgrade (net negative / zero) */
+  isUpgrade: boolean;
+  /** Currency code */
+  currency: string;
+}
+
+// ---------------------------------------------------------------------------
 // Dunning
 // ---------------------------------------------------------------------------
 

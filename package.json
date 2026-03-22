@@ -11,7 +11,8 @@
   "workspaces": [
     "packages/server",
     "packages/client",
-    "packages/shared"
+    "packages/shared",
+    "packages/sdk"
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",

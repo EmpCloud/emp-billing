@@ -1,0 +1,37 @@
+{
+  "name": "@empcloud/billing-sdk",
+  "version": "0.1.0",
+  "description": "Node.js SDK for EMP Billing API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "billing",
+    "invoicing",
+    "empcloud",
+    "sdk",
+    "api"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EmpCloud/emp-billing.git",
+    "directory": "packages/sdk"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  }
+}

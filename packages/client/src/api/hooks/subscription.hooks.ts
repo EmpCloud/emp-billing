@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { apiGet, apiPost, apiPut, apiDelete } from "../client";
-import type { Plan, Subscription, SubscriptionEvent, ApiResponse } from "@emp-billing/shared";
+import type { Plan, Subscription, SubscriptionEvent, ProrationPreview, ApiResponse } from "@emp-billing/shared";
 
 const PLANS_KEY = "plans";
 const SUBSCRIPTIONS_KEY = "subscriptions";
@@ -96,6 +96,15 @@ export function useCreateSubscription() {
       navigate("/subscriptions");
     },
     onError: () => toast.error("Failed to create subscription"),
+  });
+}
+
+export function usePreviewPlanChange(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { newPlanId: string }) =>
+      apiPost<ProrationPreview>(`/subscriptions/${id}/preview-change`, data),
+    onError: () => toast.error("Failed to load proration preview"),
   });
 }
 

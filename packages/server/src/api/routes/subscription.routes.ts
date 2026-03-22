@@ -9,6 +9,7 @@ import {
   CreateSubscriptionSchema,
   ChangeSubscriptionPlanSchema,
   CancelSubscriptionSchema,
+  PreviewPlanChangeSchema,
 } from "@emp-billing/shared";
 import * as subscriptionController from "../controllers/subscription.controller";
 
@@ -26,6 +27,7 @@ router.delete("/plans/:id", requireAccountant, asyncHandler(subscriptionControll
 router.get("/",            asyncHandler(subscriptionController.listSubscriptions));
 router.get("/:id",         asyncHandler(subscriptionController.getSubscription));
 router.post("/",           requireSales, validateBody(CreateSubscriptionSchema), asyncHandler(subscriptionController.createSubscription));
+router.post("/:id/preview-change", requireSales, validateBody(PreviewPlanChangeSchema), asyncHandler(subscriptionController.previewPlanChange));
 router.put("/:id/change-plan", requireSales, validateBody(ChangeSubscriptionPlanSchema), asyncHandler(subscriptionController.changePlan));
 router.post("/:id/cancel", requireSales, validateBody(CancelSubscriptionSchema), asyncHandler(subscriptionController.cancelSubscription));
 router.post("/:id/pause",  requireSales, asyncHandler(subscriptionController.pauseSubscription));

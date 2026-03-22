@@ -9,11 +9,13 @@ import { SubscriptionStatus, SubscriptionEventType, BillingInterval } from "@emp
 import {
   useSubscription,
   useChangePlan,
+  usePreviewPlanChange,
   useCancelSubscription,
   usePauseSubscription,
   useResumeSubscription,
   usePlans,
 } from "@/api/hooks/subscription.hooks";
+import type { ProrationPreview } from "@emp-billing/shared";
 import {
   useApplyCouponToSubscription,
   useRemoveCouponFromSubscription,
@@ -77,6 +79,7 @@ export function SubscriptionDetailPage() {
   const { data, isLoading } = useSubscription(id!);
   const { data: plansData } = usePlans();
   const changePlan = useChangePlan(id!);
+  const previewPlanChange = usePreviewPlanChange(id!);
   const cancelSubscription = useCancelSubscription(id!);
   const pauseSubscription = usePauseSubscription();
   const resumeSubscription = useResumeSubscription();
@@ -95,6 +98,7 @@ export function SubscriptionDetailPage() {
   // Change plan form
   const [newPlanId, setNewPlanId] = useState("");
   const [prorate, setProrate] = useState(false);
+  const [prorationPreview, setProrationPreview] = useState<ProrationPreview | null>(null);
 
   // Cancel form
   const [cancelReason, setCancelReason] = useState("");
@@ -103,11 +107,27 @@ export function SubscriptionDetailPage() {
   // Coupon form
   const [couponCode, setCouponCode] = useState("");
 
+  function handlePreviewProration(planId: string) {
+    if (!planId) {
+      setProrationPreview(null);
+      return;
+    }
+    previewPlanChange.mutate(
+      { newPlanId: planId },
+      { onSuccess: (res) => setProrationPreview(res.data ?? null) }
+    );
+  }
+
   function handleChangePlan() {
     if (!newPlanId) return;
     changePlan.mutate(
       { newPlanId, prorate },
-      { onSuccess: () => setChangePlanOpen(false) }
+      {
+        onSuccess: () => {
+          setChangePlanOpen(false);
+          setProrationPreview(null);
+        },
+      }
     );
   }
 
@@ -164,7 +184,7 @@ export function SubscriptionDetailPage() {
                 <Button
                   variant="outline"
                   icon={<ArrowRightLeft className="h-4 w-4" />}
-                  onClick={() => { setNewPlanId(""); setProrate(false); setChangePlanOpen(true); }}
+                  onClick={() => { setNewPlanId(""); setProrate(false); setProrationPreview(null); setChangePlanOpen(true); }}
                 >
                   Change Plan
                 </Button>
@@ -384,7 +404,11 @@ export function SubscriptionDetailPage() {
           <>
             <Button variant="ghost" onClick={() => setChangePlanOpen(false)}>Cancel</Button>
             <Button onClick={handleChangePlan} loading={changePlan.isPending} disabled={!newPlanId}>
-              Change Plan
+              {prorate && prorationPreview
+                ? prorationPreview.isUpgrade
+                  ? `Confirm Upgrade (${formatMoney(prorationPreview.netAmount, prorationPreview.currency)} charge)`
+                  : `Confirm Downgrade (${formatMoney(Math.abs(prorationPreview.netAmount), prorationPreview.currency)} credit)`
+                : "Change Plan"}
             </Button>
           </>
         }
@@ -393,7 +417,14 @@ export function SubscriptionDetailPage() {
           <Select
             label="New Plan"
             value={newPlanId}
-            onChange={(e) => setNewPlanId(e.target.value)}
+            onChange={(e) => {
+              const planId = e.target.value;
+              setNewPlanId(planId);
+              setProrationPreview(null);
+              if (planId && prorate) {
+                handlePreviewProration(planId);
+              }
+            }}
           >
             <option value="">Select a plan...</option>
             {allPlans
@@ -408,13 +439,84 @@ export function SubscriptionDetailPage() {
             <input
               type="checkbox"
               checked={prorate}
-              onChange={(e) => setProrate(e.target.checked)}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setProrate(checked);
+                if (checked && newPlanId) {
+                  handlePreviewProration(newPlanId);
+                } else {
+                  setProrationPreview(null);
+                }
+              }}
               className="h-4 w-4 text-brand-600 rounded border-gray-300 focus:ring-brand-500"
             />
             <span className="text-sm text-gray-600">
               Prorate — calculate credit/charge for remaining period
             </span>
           </div>
+
+          {/* Proration Preview */}
+          {prorate && previewPlanChange.isPending && (
+            <div className="flex items-center justify-center py-4">
+              <Spinner size="sm" />
+              <span className="ml-2 text-sm text-gray-500">Calculating proration...</span>
+            </div>
+          )}
+
+          {prorate && prorationPreview && !previewPlanChange.isPending && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
+              <h4 className="text-sm font-semibold text-gray-700">Proration Breakdown</h4>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-gray-500">Current plan (full period)</div>
+                  <div className="font-medium text-gray-800">
+                    {formatMoney(prorationPreview.currentPlanPrice, prorationPreview.currency)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-500">New plan (full period)</div>
+                  <div className="font-medium text-gray-800">
+                    {formatMoney(prorationPreview.newPlanPrice, prorationPreview.currency)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-500">Days remaining</div>
+                  <div className="font-medium text-gray-800">
+                    {prorationPreview.daysRemaining} of {prorationPreview.daysTotal} days
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-500">Unused credit</div>
+                  <div className="font-medium text-green-600">
+                    {formatMoney(prorationPreview.unusedCredit, prorationPreview.currency)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-500">New plan charge (remaining)</div>
+                  <div className="font-medium text-gray-800">
+                    {formatMoney(prorationPreview.newCharge, prorationPreview.currency)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-3 flex items-center justify-between">
+                <span className="text-sm font-semibold text-gray-700">
+                  {prorationPreview.isUpgrade ? "Amount to charge" : "Credit to issue"}
+                </span>
+                <span className={`text-lg font-bold ${prorationPreview.isUpgrade ? "text-orange-600" : "text-green-600"}`}>
+                  {prorationPreview.isUpgrade ? "" : "-"}
+                  {formatMoney(Math.abs(prorationPreview.netAmount), prorationPreview.currency)}
+                </span>
+              </div>
+
+              <p className="text-xs text-gray-500">
+                {prorationPreview.isUpgrade
+                  ? "A prorated invoice will be created for the difference."
+                  : "A credit note will be issued for the difference."}
+              </p>
+            </div>
+          )}
         </div>
       </Modal>
 

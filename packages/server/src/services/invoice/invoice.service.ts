@@ -8,7 +8,8 @@ import { computeLineItem, computeInvoiceTotals } from "./invoice.calculator";
 import { nextInvoiceNumber } from "../../utils/number-generator";
 import { generateInvoicePdf } from "../../utils/pdf";
 import { emit } from "../../events/index";
-import type { Invoice, InvoiceItem, CreditNote, Product } from "@emp-billing/shared";
+import * as exchangeRateService from "../currency/exchange-rate.service";
+import type { Invoice, InvoiceItem, CreditNote, Product, Organization } from "@emp-billing/shared";
 import type { z } from "zod";
 import type { CreateInvoiceSchema, UpdateInvoiceSchema, InvoiceFilterSchema } from "@emp-billing/shared";
 
@@ -17,6 +18,13 @@ import type { CreateInvoiceSchema, UpdateInvoiceSchema, InvoiceFilterSchema } fr
 // ============================================================================
 
 // ── List ─────────────────────────────────────────────────────────────────────
+
+export interface InvoiceWithConversion extends Invoice {
+  /** Total converted to the org's base currency using the stored exchange rate */
+  convertedTotal: number;
+  /** The org's base currency code */
+  convertedCurrency: string;
+}
 
 export async function listInvoices(orgId: string, opts: z.infer<typeof InvoiceFilterSchema>) {
   const db = await getDB();
@@ -60,7 +68,21 @@ export async function listInvoices(orgId: string, opts: z.infer<typeof InvoiceFi
     );
   }
 
-  return result;
+  // Compute converted totals using the stored exchange rate
+  const org = await db.findById<Organization>("organizations", orgId);
+  const baseCurrency = org?.defaultCurrency ?? "INR";
+
+  const dataWithConversion: InvoiceWithConversion[] = result.data.map((inv) => {
+    const rate = inv.exchangeRate ?? 1;
+    const convertedTotal = Math.round(inv.total * rate);
+    return {
+      ...inv,
+      convertedTotal,
+      convertedCurrency: baseCurrency,
+    };
+  });
+
+  return { ...result, data: dataWithConversion };
 }
 
 // ── Get ───────────────────────────────────────────────────────────────────────
@@ -90,6 +112,19 @@ export async function createInvoice(
   // Validate client exists
   const client = await db.findById<{ id: string; orgId: string }>("clients", input.clientId, orgId);
   if (!client) throw NotFoundError("Client");
+
+  // Auto-fetch exchange rate when invoice currency differs from org's base currency
+  let exchangeRate = input.exchangeRate ?? 1;
+  const org = await db.findById<Organization>("organizations", orgId);
+  const baseCurrency = org?.defaultCurrency ?? "INR";
+  if (input.currency && input.currency.toUpperCase() !== baseCurrency.toUpperCase() && exchangeRate === 1) {
+    try {
+      exchangeRate = await exchangeRateService.getRate(input.currency, baseCurrency);
+    } catch {
+      // If rate fetch fails, keep 1 — caller can set exchangeRate explicitly
+      exchangeRate = 1;
+    }
+  }
 
   // Resolve tax rates for items
   const taxRates = new Map<string, { rate: number; components?: { name: string; rate: number }[] }>();
@@ -147,7 +182,7 @@ export async function createInvoice(
     issueDate: input.issueDate,
     dueDate: input.dueDate,
     currency: input.currency,
-    exchangeRate: input.exchangeRate,
+    exchangeRate,
     subtotal: totals.subtotal,
     discountType: input.discountType ?? null,
     discountValue: input.discountValue ?? null,
