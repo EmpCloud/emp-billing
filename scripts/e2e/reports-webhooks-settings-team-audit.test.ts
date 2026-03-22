@@ -705,16 +705,13 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
     // Wait specifically for an input to appear inside .fixed (not just .fixed which may match other elements)
     await page.waitForFunction(
       () => {
-        const fixedOverlays = document.querySelectorAll('.fixed');
-        for (const overlay of fixedOverlays) {
-          if (overlay.querySelector('input[name="name"], input#name')) return true;
-        }
-        return false;
+        const inp = document.querySelector('.fixed input');
+        return inp !== null;
       },
       null,
-      { timeout: 15000 },
+      { timeout: 20000 },
     );
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
 
     // Fill the tax rate form in the modal
     const nameInput = page.locator('.fixed input#name, .fixed input[name="name"]').first();

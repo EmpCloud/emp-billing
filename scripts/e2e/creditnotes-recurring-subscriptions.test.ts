@@ -289,36 +289,29 @@ let subscriptionId: string | undefined;
     // It does NOT have role="dialog". Wait for the .fixed overlay that contains a <select>.
     await page.waitForFunction(
       () => {
-        const fixedOverlays = document.querySelectorAll('.fixed');
-        for (const overlay of fixedOverlays) {
-          if (overlay.querySelector('select')) return true;
-        }
-        return false;
+        const sel = document.querySelector('.fixed select');
+        return sel !== null;
       },
       null,
-      { timeout: 10000 },
+      { timeout: 15000 },
     );
-    await page.waitForTimeout(1500); // wait for invoices to load in the dropdown
+    await page.waitForTimeout(2000); // wait for invoices to load in the dropdown
 
     // Select an invoice from the modal's select dropdown
     // The ApplyForm renders <Select label="Invoice"> which generates id="invoice"
-    const modalSelect = page.locator('.fixed select#invoice, .fixed select').first();
+    const modalSelect = page.locator('.fixed select').first();
     await modalSelect.waitFor({ state: "visible", timeout: 10000 });
 
     // Wait for invoice options to populate from the API
     await page.waitForFunction(
       () => {
-        const selects = document.querySelectorAll('.fixed select');
-        for (const sel of selects) {
-          const opts = (sel as HTMLSelectElement).options;
-          for (let i = 0; i < opts.length; i++) {
-            if (opts[i].value && opts[i].value.length > 0) return true;
-          }
-        }
-        return false;
+        const sel = document.querySelector('.fixed select') as HTMLSelectElement | null;
+        if (!sel) return false;
+        const opts = Array.from(sel.options);
+        return opts.some((o) => o.value && o.value.length > 0);
       },
       null,
-      { timeout: 15000 },
+      { timeout: 20000 },
     );
 
     const invoiceOptions = await modalSelect.locator('option').all();

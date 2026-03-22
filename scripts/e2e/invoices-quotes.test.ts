@@ -496,24 +496,24 @@ async function getFirstClientOptionValue(page: Page, selectId: string): Promise<
     // "Record Payment" inside a fixed overlay. We look for the h2 inside the modal panel,
     // not the button text which is already visible on the page.
     await page.waitForSelector('div.fixed h2:has-text("Record Payment")', { timeout: 5000 });
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
 
     // The RecordPaymentForm uses react-hook-form register() which sets name= attributes.
     // The Input component generates id from label, so: label="Amount" → id="amount".
     // Fill amount (partial: 100 out of ~1250 total)
-    const amountInput = page.locator('#amount');
+    const amountInput = page.locator('div.fixed #amount');
     await amountInput.waitFor({ timeout: 5000 });
     await amountInput.fill("");
     await amountInput.fill("100");
 
     // Select payment method from dropdown.
     // label="Payment Method" → id="payment-method"
-    const methodSelect = page.locator('#payment-method');
+    const methodSelect = page.locator('div.fixed #payment-method');
     await methodSelect.waitFor({ timeout: 5000 });
     await methodSelect.selectOption("bank_transfer");
 
     // Fill reference — label="Reference" → id="reference"
-    const refInput = page.locator('#reference');
+    const refInput = page.locator('div.fixed #reference');
     await refInput.fill("E2E-REF-001");
 
     // Fill notes — label="Notes" → id="notes"
@@ -524,7 +524,7 @@ async function getFirstClientOptionValue(page: Page, selectId: string): Promise<
 
     // Click submit button inside the modal — the RecordPaymentForm has:
     // <Button type="submit">Record Payment</Button>
-    const submitPaymentBtn = page.locator('div.fixed button[type="submit"]:has-text("Record Payment")');
+    const submitPaymentBtn = page.locator('div.fixed button[type="submit"]');
     await submitPaymentBtn.click();
 
     // Wait for toast "Payment recorded"
@@ -949,17 +949,21 @@ async function getFirstClientOptionValue(page: Page, selectId: string): Promise<
     await editBtn.click();
 
     await page.waitForURL(`**/quotes/${editQuoteId}/edit`, { timeout: 10000 });
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(1500);
 
     // Wait for the form to populate with data from the API (useEffect → reset()).
     // The QuoteEditPage renders a Spinner while loading; once rendered, the form appears.
-    // Poll until the line item name is populated with our data.
+    // Poll until the line item rate is populated with our data.
     const editRateInput = page.locator('input[name="items.0.rate"]');
-    for (let i = 0; i < 20; i++) {
-      const val = await editRateInput.inputValue().catch(() => "");
-      if (val && val !== "0") break;
-      await page.waitForTimeout(500);
-    }
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector('input[name="items.0.rate"]') as HTMLInputElement | null;
+        return el && el.value !== "" && el.value !== "0";
+      },
+      null,
+      { timeout: 15000 },
+    );
 
     // QuoteEditPage: Select with label="Currency" → id="currency"
     const currencySelect = page.locator("#currency");

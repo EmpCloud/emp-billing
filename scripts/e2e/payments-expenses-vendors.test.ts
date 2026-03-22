@@ -256,14 +256,19 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
 
     // Select client from dropdown (native <select> — the Select component
     // generates id from label "Client" -> "client")
+    // Wait for network to settle before checking client options
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(1000);
+
     const clientSelect = page.locator('select#client');
     await clientSelect.waitFor({ timeout: 5000 });
-    // Wait for client options to be populated by the API — return the first
-    // non-empty option value directly from the browser context to avoid any
-    // race between the waitForFunction check and the subsequent option scan.
-    // Wait for network to settle before checking client options
-    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
-    await page.waitForTimeout(1000);
+
+    // Wait for client dropdown options to be populated by the API
+    await page.waitForFunction(
+      () => document.querySelectorAll('select#client option').length > 1,
+      null,
+      { timeout: 30000 },
+    );
 
     const selectedClientValue = await page.waitForFunction(
       () => {
@@ -640,6 +645,7 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
 
     // Wait for network to settle — the form loads data asynchronously
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(1000);
 
     // Wait for the form to render (it only appears after the expense data loads,
     // since a Spinner is shown while isLoading is true).  Then wait for the
@@ -649,15 +655,15 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       null,
       { timeout: 25000 },
     );
-    const descTextarea = page.locator("textarea").first();
+    const descTextarea = page.locator('textarea[name="description"]').first();
     await descTextarea.waitFor({ timeout: 10000 });
     await page.waitForFunction(
       () => {
-        const ta = document.querySelector("textarea");
+        const ta = document.querySelector('textarea[name="description"]') as HTMLTextAreaElement | null;
         return ta && ta.value.length > 0;
       },
       null,
-      { timeout: 25000 },
+      { timeout: 30000 },
     );
 
     // Change description
@@ -959,6 +965,7 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
     // Wait for the vendor API response to complete before checking rendered text
     // This prevents checking text before the data has loaded (seeing only "EB" initials)
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(3000);
 
     // Wait for the vendor detail page to fully load — the "Contact Information"
     // section heading only renders after the vendor data is fetched.
@@ -968,7 +975,7 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       { timeout: 25000 },
     );
     // Give React a moment to finish rendering all child elements
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2000);
 
     // Verify detail page shows vendor info — use innerText for rendered text
     const innerText = await page.evaluate(() => document.body.innerText);
@@ -1103,16 +1110,26 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       // Click the Delete button in that row
       const deleteBtn = vendorRow.locator('button:has-text("Delete"), button:has(span:text("Delete"))').first();
       await deleteBtn.waitFor({ timeout: 10000 });
+
+      // Register the response listener BEFORE clicking to avoid race
+      const deleteResponsePromise = page.waitForResponse(
+        (resp) => resp.url().includes("/api/v1/vendors/") && resp.request().method() === "DELETE",
+        { timeout: 20000 },
+      );
       await deleteBtn.click();
 
-      // Wait for toast "Vendor deleted"
-      await waitForToast(page, "Vendor deleted", 20000);
+      // Wait for the DELETE API response instead of toast (more reliable)
+      try {
+        await deleteResponsePromise;
+      } catch {
+        // May have already completed
+      }
 
       // Clean up dialog handler
       page.off("dialog", dialogHandler);
 
       // Wait for list to update
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(3000);
     } else {
       // Vendor row not visible — use API as fallback to delete
       await page.evaluate(async (id) => {

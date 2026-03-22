@@ -244,33 +244,31 @@ let createdFixedCouponId: string | null = null;
     await page.waitForSelector("text=Coupon Details", { timeout: 10000 });
 
     // Fill Code — the code input is inside a flex container, it is the input with placeholder "SUMMER20"
-    const codeInput = page.locator('input[placeholder="SUMMER20"]');
+    const codeInput = page.locator('input[name="code"]');
     await codeInput.waitFor({ timeout: 5000 });
     await codeInput.click();
     await codeInput.fill("E2E-PCT-TEST");
 
     // Fill Name — Input component generates id="name" from label "Name"
-    const nameInput = page.locator('#name, input[placeholder="Summer Sale 20% Off"]').first();
+    const nameInput = page.locator('input[name="name"]');
     await nameInput.waitFor({ timeout: 5000 });
     await nameInput.click();
     await nameInput.fill("E2E Percentage Test Coupon");
 
     // Select Type = Percentage (should be default, but let's be explicit)
     // The Type select has id="type" (from label "Type")
-    await page.selectOption('#type', 'percentage');
-    await page.waitForTimeout(300);
+    await page.selectOption('select[name="type"]', 'percentage');
+    await page.waitForTimeout(500);
 
-    // Fill Value = 15 — use fill() which is more reliable than type()
-    // The input has id generated from label "Percentage (%)" -> "percentage-(%)"
-    // Better to use name="value" from register()
+    // Fill Value = 15
     const percentageInput = page.locator('input[name="value"]');
     await percentageInput.waitFor({ timeout: 5000 });
     await percentageInput.click();
+    await percentageInput.fill("");
     await percentageInput.fill("15");
 
     // Set valid from date — it should already have today's date as default
-    // The "Valid From" input — Input component id from label "Valid From" -> "valid-from"
-    const validFromInput = page.locator('#valid-from, input[name="validFrom"]').first();
+    const validFromInput = page.locator('input[name="validFrom"]');
     await validFromInput.waitFor({ timeout: 5000 });
     const today = new Date().toISOString().slice(0, 10);
     await validFromInput.fill(today);
@@ -329,30 +327,31 @@ let createdFixedCouponId: string | null = null;
     await page.waitForTimeout(2000);
 
     // Fill Code
-    const codeInput = page.locator('input[placeholder="SUMMER20"]');
+    const codeInput = page.locator('input[name="code"]');
     await codeInput.waitFor({ timeout: 5000 });
     await codeInput.click();
     await codeInput.fill("E2E-FIXED-TEST");
 
     // Fill Name
-    const nameInput = page.locator('#name, input[placeholder="Summer Sale 20% Off"]').first();
+    const nameInput = page.locator('input[name="name"]');
     await nameInput.waitFor({ timeout: 5000 });
     await nameInput.click();
     await nameInput.fill("E2E Fixed Amount Test Coupon");
 
     // Select Type = Fixed Amount
-    await page.selectOption('#type', 'fixed_amount');
+    await page.selectOption('select[name="type"]', 'fixed_amount');
     await page.waitForTimeout(500); // Wait for UI to re-render
 
-    // Fill Amount = 50 — use fill() which is more reliable than type()
+    // Fill Amount = 50
     const amountInput = page.locator('input[name="value"]');
     await amountInput.waitFor({ timeout: 5000 });
     await amountInput.click();
+    await amountInput.fill("");
     await amountInput.fill("50");
 
     // Set valid from date
     const today = new Date().toISOString().slice(0, 10);
-    const validFromInput = page.locator('#valid-from, input[name="validFrom"]').first();
+    const validFromInput = page.locator('input[name="validFrom"]');
     await validFromInput.waitFor({ timeout: 5000 });
     await validFromInput.fill(today);
 
@@ -815,13 +814,17 @@ let createdFixedCouponId: string | null = null;
     await page.waitForTimeout(300);
     await saveChangesBtn.click();
 
-    await saveResponsePromise;
+    // Wait for the PUT response — the mutation does NOT redirect, it stays on the same page.
+    const putResponse = await saveResponsePromise;
+    const putStatus = putResponse.status();
+    if (putStatus < 200 || putStatus >= 300) {
+      throw new Error(`Update dispute API returned status ${putStatus}`);
+    }
 
-    // The mutation does NOT redirect — it stays on the same page.
     // Wait a moment for any toast and verify we're still on the dispute detail page.
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2000);
     const body = await page.textContent("body");
-    if (!body?.toLowerCase().includes("dispute detail") && !body?.toLowerCase().includes("admin actions")) {
+    if (!body?.toLowerCase().includes("admin actions")) {
       throw new Error("Not on dispute detail page after save");
     }
   }, context);
