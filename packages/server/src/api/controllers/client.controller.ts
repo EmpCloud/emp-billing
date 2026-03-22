@@ -75,3 +75,9 @@ export async function removePaymentMethod(req: Request, res: Response): Promise<
   );
   res.json({ success: true, data: client });
 }
+
+export async function autoProvisionClient(req: Request, res: Response): Promise<void> {
+  const result = await clientService.autoProvisionClient(req.user!.orgId, req.body);
+  const status = result.isNew ? 201 : 200;
+  res.status(status).json({ success: true, data: result });
+}

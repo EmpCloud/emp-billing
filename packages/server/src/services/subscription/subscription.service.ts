@@ -315,6 +315,19 @@ export async function createSubscription(
     clientId: input.clientId,
   });
 
+  // If no trial period, subscription is immediately active — emit activated event
+  if (plan.trialPeriodDays === 0) {
+    await logEvent(id, orgId, SubscriptionEventType.ACTIVATED);
+
+    emit("subscription.activated", {
+      orgId,
+      subscriptionId: id,
+      subscription: { id, clientId: input.clientId, planId: input.planId, status },
+      planId: input.planId,
+      clientId: input.clientId,
+    });
+  }
+
   // Log trial started if applicable
   if (plan.trialPeriodDays > 0) {
     await logEvent(id, orgId, SubscriptionEventType.TRIAL_STARTED, {

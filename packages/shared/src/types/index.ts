@@ -177,6 +177,7 @@ export enum WebhookEvent {
   SUBSCRIPTION_CANCELLED = "subscription.cancelled",
   SUBSCRIPTION_EXPIRED = "subscription.expired",
   PAYMENT_FAILED = "payment.failed",
+  SUBSCRIPTION_PAYMENT_FAILED = "subscription.payment_failed",
   COUPON_REDEEMED = "coupon.redeemed",
 }
 
@@ -308,6 +309,8 @@ export interface UsageRecord {
   recordedAt: Date;
   periodStart: Date;
   periodEnd: Date;
+  billed: boolean;
+  invoiceId?: string;
   createdAt: Date;
 }
 

@@ -1,10 +1,13 @@
 import { v4 as uuid } from "uuid";
+import dayjs from "dayjs";
 import { getDB } from "../../db/adapters/index";
 import { NotFoundError, BadRequestError } from "../../utils/AppError";
-import { PricingModel } from "@emp-billing/shared";
-import type { Product, PricingTier, UsageRecord } from "@emp-billing/shared";
+import { PricingModel, InvoiceStatus } from "@emp-billing/shared";
+import { computeLineItem, computeInvoiceTotals } from "../invoice/invoice.calculator";
+import { nextInvoiceNumber } from "../../utils/number-generator";
+import type { Product, PricingTier, UsageRecord, Invoice, InvoiceItem } from "@emp-billing/shared";
 import type { z } from "zod";
-import type { CreateUsageRecordSchema, UsageFilterSchema } from "@emp-billing/shared";
+import type { CreateUsageRecordSchema, UsageFilterSchema, ReportUsageSchema, GenerateUsageInvoiceSchema } from "@emp-billing/shared";
 
 // ============================================================================
 // PRICING SERVICE
@@ -187,6 +190,8 @@ export async function recordUsage(
     recordedAt: data.recordedAt ?? now,
     periodStart: data.periodStart,
     periodEnd: data.periodEnd,
+    billed: false,
+    invoiceId: null,
     createdAt: now,
   });
 
@@ -253,4 +258,263 @@ export async function listUsageRecords(
   }
 
   return result;
+}
+
+// ── Simplified usage reporting ───────────────────────────────────────────────
+
+/**
+ * Report metered usage — simplified endpoint for SaaS integrations.
+ * Defaults periodStart/periodEnd to the current calendar month if not provided.
+ */
+export async function reportUsage(
+  orgId: string,
+  data: z.infer<typeof ReportUsageSchema>
+): Promise<UsageRecord> {
+  const db = await getDB();
+
+  // Validate product exists
+  const product = await db.findById<Product>("products", data.productId, orgId);
+  if (!product) throw NotFoundError("Product");
+
+  // Validate client exists
+  const client = await db.findById("clients", data.clientId, orgId);
+  if (!client) throw NotFoundError("Client");
+
+  if (product.pricingModel !== PricingModel.METERED) {
+    throw BadRequestError("Usage records can only be created for metered products");
+  }
+
+  const now = new Date();
+  const periodStart = data.periodStart ?? dayjs(now).startOf("month").toDate();
+  const periodEnd = data.periodEnd ?? dayjs(now).endOf("month").toDate();
+
+  const record = await db.create<UsageRecord>("usage_records", {
+    id: uuid(),
+    orgId,
+    subscriptionId: null,
+    productId: data.productId,
+    clientId: data.clientId,
+    quantity: data.quantity,
+    description: data.description ?? null,
+    recordedAt: now,
+    periodStart,
+    periodEnd,
+    billed: false,
+    invoiceId: null,
+    createdAt: now,
+  });
+
+  return record;
+}
+
+/**
+ * Generate an invoice from unbilled usage records for a client in a given period.
+ * Groups usage by product, calculates pricing, creates the invoice, and marks records as billed.
+ */
+export async function generateUsageInvoice(
+  orgId: string,
+  userId: string,
+  data: z.infer<typeof GenerateUsageInvoiceSchema>
+): Promise<Invoice & { items: InvoiceItem[] }> {
+  const db = await getDB();
+
+  // Validate client exists
+  const client = await db.findById<{ id: string; orgId: string; currency?: string; paymentTerms?: number }>(
+    "clients",
+    data.clientId,
+    orgId
+  );
+  if (!client) throw NotFoundError("Client");
+
+  // Find all unbilled usage records for this client in the period
+  const unbilledRecords = await db.raw<UsageRecord[]>(
+    `SELECT * FROM usage_records
+     WHERE org_id = ? AND client_id = ? AND billed = false
+       AND period_start >= ? AND period_end <= ?
+     ORDER BY product_id, recorded_at`,
+    [orgId, data.clientId, data.periodStart, data.periodEnd]
+  );
+
+  if (unbilledRecords.length === 0) {
+    throw BadRequestError("No unbilled usage records found for the specified client and period");
+  }
+
+  // Group by product and sum quantities
+  const productUsage = new Map<string, { quantity: number; descriptions: string[] }>();
+  for (const record of unbilledRecords) {
+    const existing = productUsage.get(record.productId) ?? { quantity: 0, descriptions: [] };
+    existing.quantity += Number(record.quantity);
+    if (record.description) {
+      existing.descriptions.push(record.description);
+    }
+    productUsage.set(record.productId, existing);
+  }
+
+  // Build invoice items from grouped usage
+  const invoiceItems: {
+    productId: string;
+    name: string;
+    description: string;
+    quantity: number;
+    rate: number;
+    unit?: string;
+    hsnCode?: string;
+    taxRateId?: string;
+    sortOrder: number;
+  }[] = [];
+
+  let sortOrder = 0;
+  for (const [productId, usage] of productUsage) {
+    const product = await db.findById<Product>("products", productId, orgId);
+    if (!product) continue;
+
+    // Parse pricingTiers from JSON string if needed
+    if (product.pricingTiers && typeof product.pricingTiers === "string") {
+      product.pricingTiers = JSON.parse(product.pricingTiers as unknown as string);
+    }
+
+    const totalAmount = calculatePrice(product, usage.quantity);
+    // Compute the effective unit rate for the invoice line item (in smallest unit)
+    const effectiveRate = usage.quantity > 0 ? Math.round(totalAmount / usage.quantity) : product.rate;
+
+    const descParts = [
+      `Usage: ${usage.quantity} × ${product.name}`,
+      `Period: ${dayjs(data.periodStart).format("YYYY-MM-DD")} to ${dayjs(data.periodEnd).format("YYYY-MM-DD")}`,
+    ];
+    if (usage.descriptions.length > 0) {
+      descParts.push(usage.descriptions.join("; "));
+    }
+
+    invoiceItems.push({
+      productId,
+      name: product.name,
+      description: descParts.join("\n"),
+      quantity: usage.quantity,
+      rate: effectiveRate,
+      unit: product.unit,
+      hsnCode: product.hsnCode,
+      taxRateId: product.taxRateId,
+      sortOrder: sortOrder++,
+    });
+  }
+
+  if (invoiceItems.length === 0) {
+    throw BadRequestError("No valid products found for the usage records");
+  }
+
+  // Resolve tax rates
+  const taxRates = new Map<string, { rate: number; components?: { name: string; rate: number }[] }>();
+  for (const item of invoiceItems) {
+    if (item.taxRateId && !taxRates.has(item.taxRateId)) {
+      const tr = await db.findById<{ rate: number; components: string }>("tax_rates", item.taxRateId, orgId);
+      if (tr) {
+        const components = tr.components
+          ? (typeof tr.components === "string" ? JSON.parse(tr.components) : tr.components)
+          : undefined;
+        taxRates.set(item.taxRateId, { rate: tr.rate, components });
+      }
+    }
+  }
+
+  // Compute line items
+  const computedItems = invoiceItems.map((item) => {
+    const taxInfo = item.taxRateId ? taxRates.get(item.taxRateId) : undefined;
+    const computed = computeLineItem({
+      quantity: item.quantity,
+      rate: item.rate,
+      taxRate: taxInfo?.rate ?? 0,
+      taxComponents: taxInfo?.components,
+    });
+    return { ...item, ...computed };
+  });
+
+  const totals = computeInvoiceTotals(computedItems);
+
+  const invoiceNumber = await nextInvoiceNumber(orgId);
+  const invoiceId = uuid();
+  const now = new Date();
+  const issueDate = now;
+  const dueDate = dayjs(now).add(client.paymentTerms ?? 30, "day").toDate();
+  const currency = client.currency ?? "INR";
+
+  // Create invoice within a transaction to ensure atomicity
+  return await db.transaction(async (trx) => {
+    await trx.create("invoices", {
+      id: invoiceId,
+      orgId,
+      clientId: data.clientId,
+      invoiceNumber,
+      referenceNumber: null,
+      status: InvoiceStatus.DRAFT,
+      issueDate,
+      dueDate,
+      currency,
+      exchangeRate: 1,
+      subtotal: totals.subtotal,
+      discountType: null,
+      discountValue: null,
+      discountAmount: totals.discountAmount,
+      taxAmount: totals.taxAmount,
+      total: totals.total,
+      amountPaid: 0,
+      amountDue: totals.total,
+      tdsRate: null,
+      tdsAmount: 0,
+      tdsSection: null,
+      notes: `Auto-generated from metered usage for period ${dayjs(data.periodStart).format("YYYY-MM-DD")} to ${dayjs(data.periodEnd).format("YYYY-MM-DD")}`,
+      terms: null,
+      customFields: null,
+      createdBy: userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Create invoice items
+    await trx.createMany(
+      "invoice_items",
+      computedItems.map((item, idx) => ({
+        id: uuid(),
+        invoiceId,
+        orgId,
+        productId: item.productId ?? null,
+        name: item.name,
+        description: item.description ?? null,
+        hsnCode: item.hsnCode ?? null,
+        quantity: item.quantity,
+        unit: item.unit ?? null,
+        rate: item.rate,
+        discountType: null,
+        discountValue: null,
+        discountAmount: item.discountAmount,
+        taxRateId: item.taxRateId ?? null,
+        taxRate: item.taxRate,
+        taxAmount: item.taxAmount,
+        taxComponents: item.taxBreakdown ? JSON.stringify(item.taxBreakdown) : null,
+        amount: item.amount,
+        sortOrder: idx,
+      }))
+    );
+
+    // Update client totals
+    await trx.increment("clients", data.clientId, "total_billed", totals.total);
+    await trx.increment("clients", data.clientId, "outstanding_balance", totals.total);
+
+    // Mark usage records as billed
+    const recordIds = unbilledRecords.map((r) => r.id);
+    for (const recordId of recordIds) {
+      await trx.update("usage_records", recordId, {
+        billed: true,
+        invoiceId,
+      });
+    }
+
+    // Fetch the created invoice and items
+    const invoice = await trx.findById<Invoice>("invoices", invoiceId, orgId);
+    const items = await trx.findMany<InvoiceItem>("invoice_items", {
+      where: { invoice_id: invoiceId },
+      orderBy: [{ column: "sort_order", direction: "asc" }],
+    });
+
+    return { ...invoice!, items };
+  });
 }

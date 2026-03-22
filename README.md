@@ -89,10 +89,32 @@ Handles the complete billing lifecycle: **Quotes > Invoices > Payments > Receipt
 ### Build & Test Status
 
 - **Build**: All 3 packages compile successfully (shared, server, client)
-- **Tests**: **778 passing** across 46 test files — zero failures
-  - `@emp-billing/server`: 617 tests (39 files) — services, middleware, utils, events
+- **Unit Tests**: **618+ passing** across 46 test files — zero failures
+  - `@emp-billing/server`: 457+ tests (39 files) — services, middleware, utils, events
   - `@emp-billing/client`: 11 tests (3 files) — Zustand stores
   - `@emp-billing/shared`: 150 tests (4 files) — validators, tax engines (GST, UAE, VAT, Sales Tax), billing utils
+- **E2E Tests**: **130 Playwright tests** across 7 test files — deep functional, UI-driven
+  - Auth & Dashboard, Invoices & Quotes, Clients & Products, Payments & Expenses & Vendors, Credit Notes & Recurring & Subscriptions, Coupons & Dunning & Disputes & Usage & Metrics, Reports & Webhooks & Settings & Team & Audit
+  - Tests fill real forms, click buttons, verify toasts, navigate between pages
+  - Run with: `bash scripts/e2e/run-all.sh`
+
+### Security Audit & Hardening
+
+A comprehensive security audit identified and fixed **30 vulnerabilities**:
+
+- **Redis-based rate limiting** on all authentication and sensitive endpoints
+- **RBAC enforcement** on all sensitive routes (admin, settings, team management, audit logs)
+- **SSRF protection** on webhook URLs — blocks private/internal IPs, localhost, and link-local addresses
+- **Puppeteer sandboxing** — PDF generation runs in a sandboxed Chromium instance
+- **Input validation** on all API endpoints via Zod schemas (shared between client and server)
+- **XSS prevention** — template outputs sanitized, Content-Security-Policy headers
+- **SQL injection protection** — parameterized queries via Knex, no raw string interpolation
+
+### Bug Fixes
+
+- **11 GitHub issues** identified and fixed during E2E testing
+- **7 additional bugs** discovered and resolved through deep functional testing
+- Fixes span UI rendering, form validation, API response handling, navigation edge cases, and data persistence
 
 ### What's Built (Complete)
 
@@ -124,14 +146,15 @@ Handles the complete billing lifecycle: **Quotes > Invoices > Payments > Receipt
 | **Team/RBAC** | Done | Owner/Admin/Accountant/Sales/Viewer roles |
 | **Audit Log** | Done | Full activity trail |
 | **API Docs** | Done | OpenAPI 3.0 spec, Swagger UI at `/api/docs` |
+| **Custom Domain Mapping** | Done | SaaS customers map subdomains via CNAME, DNS verification, in-memory caching, settings UI |
 | **MongoDB Adapter** | Done | Full `IDBAdapter` implementation with native driver |
 | **Docker** | Done | Multi-stage Dockerfile, docker-compose with MySQL + Redis + App |
 | **OCR** | Done | Tesseract.js local + cloud provider hooks |
 
 ### Database Schema
 
-14 migrations applied covering 30+ tables:
-`organizations`, `users`, `clients`, `client_contacts`, `products`, `price_lists`, `tax_rates`, `invoices`, `invoice_items`, `quotes`, `quote_items`, `credit_notes`, `credit_note_items`, `payments`, `payment_allocations`, `expenses`, `expense_categories`, `vendors`, `recurring_profiles`, `recurring_executions`, `templates`, `client_portal_access`, `webhooks`, `webhook_deliveries`, `audit_logs`, `settings`, `notifications`, `disputes`, `scheduled_reports`, `subscriptions`, `plans`, `usage_records`, `coupons`, `dunning_attempts`, `saved_payment_methods`
+15 migrations applied covering 30+ tables:
+`organizations`, `users`, `clients`, `client_contacts`, `products`, `price_lists`, `tax_rates`, `invoices`, `invoice_items`, `quotes`, `quote_items`, `credit_notes`, `credit_note_items`, `payments`, `payment_allocations`, `expenses`, `expense_categories`, `vendors`, `recurring_profiles`, `recurring_executions`, `templates`, `client_portal_access`, `webhooks`, `webhook_deliveries`, `audit_logs`, `settings`, `notifications`, `disputes`, `scheduled_reports`, `subscriptions`, `plans`, `usage_records`, `coupons`, `dunning_attempts`, `saved_payment_methods`, `custom_domains`
 
 ---
 
@@ -176,6 +199,36 @@ Handles the complete billing lifecycle: **Quotes > Invoices > Payments > Receipt
 - **Import/Export** — CSV import/export for clients and products
 - **OCR** — Receipt scanning via Tesseract.js (local) or cloud providers (Google Vision, AWS Textract, Azure Form Recognizer)
 - **API Documentation** — Full OpenAPI 3.0 spec at `/api/docs` (Swagger UI)
+- **Custom Domain Mapping** — SaaS customers can point their subdomain via CNAME, DNS verification with TXT records, in-memory caching for fast lookups, settings UI for domain management
+
+### Real-World Integration: AdsGPT
+
+emp-billing is actively used as the billing backend for [AdsGPT](https://adsgpt.com), validating the platform against real SaaS requirements:
+
+- **9 subscription plans** configured: Free Trial, Basic, Starter, Individual, Creator, Growth, Scale (monthly + annual variants)
+- **10 products** mapped to AdsGPT features with usage-based metering
+- Full subscription lifecycle: trial signup, plan upgrades, usage tracking, invoicing
+
+### E2E Test Suite
+
+130 Playwright-based end-to-end tests cover all 24 modules with deep functional verification:
+
+| Test File | Modules Covered | Tests |
+|-----------|----------------|-------|
+| `auth-dashboard.test.ts` | Login, Register, Forgot Password, Dashboard | 12 |
+| `invoices-quotes.test.ts` | Invoice CRUD, PDF, Quotes, Convert to Invoice | 19 |
+| `clients-products.test.ts` | Client CRUD, Statements, Product CRUD, Inventory | 16 |
+| `payments-expenses-vendors.test.ts` | Payments, Expenses, Vendors | 20 |
+| `creditnotes-recurring-subscriptions.test.ts` | Credit Notes, Recurring Profiles, Subscriptions | 21 |
+| `coupons-dunning-disputes-usage-metrics.test.ts` | Coupons, Dunning, Disputes, Usage, Metrics | 21 |
+| `reports-webhooks-settings-team-audit.test.ts` | Reports, Webhooks, Settings, Tax Rates, Team, Audit Log | 28 |
+
+```bash
+# Run the full E2E suite
+bash scripts/e2e/run-all.sh
+```
+
+Tests are not shallow smoke tests -- they fill real forms with realistic data, interact with dropdowns and modals, verify toast notifications, check navigation, and validate data persistence across page reloads.
 
 ---
 
@@ -235,6 +288,8 @@ emp-billing/
 │           ├── pages/            # 12 page modules
 │           └── store/            # Zustand stores
 │
+├── scripts/
+│   └── e2e/                 # 130 Playwright E2E tests (7 test files)
 ├── docker/                  # Dockerfile + entrypoint
 ├── docker-compose.yml       # MySQL + PostgreSQL + Redis + Mailpit + App
 ├── .env.example             # All environment variables
@@ -306,13 +361,16 @@ ngrok http 4001 --domain=your-domain.ngrok-free.dev
 ### Running Tests
 
 ```bash
-# All packages
+# Unit tests — all packages
 pnpm run test
 
 # Individual packages
 pnpm --filter @emp-billing/server test
 pnpm --filter @emp-billing/client test
 pnpm --filter @emp-billing/shared test
+
+# E2E tests (requires server + client running on localhost:4001)
+bash scripts/e2e/run-all.sh
 ```
 
 ### Build

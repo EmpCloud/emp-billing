@@ -300,6 +300,23 @@ export async function processDunningAttempt(attemptId: string, orgId?: string): 
     await db.increment("clients", invoice.clientId, "outstanding_balance", -invoice.amountDue);
     await db.update("clients", invoice.clientId, { updatedAt: now }, attempt.orgId);
 
+    // Emit payment.received event
+    emit("payment.received", {
+      orgId: attempt.orgId,
+      paymentId,
+      payment: { id: paymentId, paymentNumber, amount: invoice.amountDue, method: paymentMethod } as unknown as Record<string, unknown>,
+      invoiceId: attempt.invoiceId,
+    });
+
+    // Emit invoice.paid if invoice is now fully paid
+    if (newStatus === InvoiceStatus.PAID) {
+      emit("invoice.paid", {
+        orgId: attempt.orgId,
+        invoiceId: attempt.invoiceId,
+        invoice: { id: attempt.invoiceId, invoiceNumber: invoice.invoiceNumber, status: InvoiceStatus.PAID } as unknown as Record<string, unknown>,
+      });
+    }
+
     logger.info("Dunning attempt succeeded", {
       attemptId,
       invoiceId: attempt.invoiceId,
@@ -345,6 +362,17 @@ export async function processDunningAttempt(attemptId: string, orgId?: string): 
         error: chargeError,
         attemptNumber: attempt.attemptNumber,
       });
+
+      // Also emit subscription.payment_failed when linked to a subscription
+      if (attempt.subscriptionId) {
+        emit("subscription.payment_failed", {
+          orgId: attempt.orgId,
+          invoiceId: attempt.invoiceId,
+          subscriptionId: attempt.subscriptionId,
+          error: chargeError,
+          attemptNumber: attempt.attemptNumber,
+        });
+      }
 
       logger.info("Dunning attempt failed, next retry scheduled", {
         attemptId,
@@ -418,6 +446,17 @@ export async function processDunningAttempt(attemptId: string, orgId?: string): 
         error: chargeError,
         attemptNumber: attempt.attemptNumber,
       });
+
+      // Also emit subscription.payment_failed when linked to a subscription
+      if (attempt.subscriptionId) {
+        emit("subscription.payment_failed", {
+          orgId: attempt.orgId,
+          invoiceId: attempt.invoiceId,
+          subscriptionId: attempt.subscriptionId,
+          error: chargeError,
+          attemptNumber: attempt.attemptNumber,
+        });
+      }
 
       logger.info("Dunning exhausted all retries", {
         attemptId,

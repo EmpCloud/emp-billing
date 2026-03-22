@@ -41,3 +41,17 @@ export async function getUsageSummary(req: Request, res: Response): Promise<void
   );
   res.json({ success: true, data: summary });
 }
+
+export async function reportUsage(req: Request, res: Response): Promise<void> {
+  const record = await pricingService.reportUsage(req.user!.orgId, req.body);
+  res.status(201).json({ success: true, data: record });
+}
+
+export async function generateUsageInvoice(req: Request, res: Response): Promise<void> {
+  const invoice = await pricingService.generateUsageInvoice(
+    req.user!.orgId,
+    req.user!.id,
+    req.body
+  );
+  res.status(201).json({ success: true, data: invoice });
+}

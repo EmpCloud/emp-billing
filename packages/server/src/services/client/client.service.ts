@@ -2,9 +2,12 @@ import { v4 as uuid } from "uuid";
 import { getDB } from "../../db/adapters/index";
 import { NotFoundError, ConflictError } from "../../utils/AppError";
 import { formatMoney } from "@emp-billing/shared";
+import { emit } from "../../events/index";
 import type { Client, ClientContact } from "@emp-billing/shared";
+import crypto from "crypto";
 import type { z } from "zod";
-import type { CreateClientSchema, UpdateClientSchema } from "@emp-billing/shared";
+import type { CreateClientSchema, UpdateClientSchema, AutoProvisionClientSchema } from "@emp-billing/shared";
+import { config } from "../../config/index";
 
 // ============================================================================
 // CLIENT SERVICE
@@ -125,7 +128,15 @@ export async function createClient(
     );
   }
 
-  return getClient(orgId, clientId);
+  const createdClient = await getClient(orgId, clientId);
+
+  emit("client.created", {
+    orgId,
+    clientId,
+    client: createdClient as unknown as Record<string, unknown>,
+  });
+
+  return createdClient;
 }
 
 export async function updateClient(
@@ -342,6 +353,88 @@ export async function removePaymentMethod(
   }, orgId);
 
   return (await db.findById<Client>("clients", clientId, orgId))!;
+}
+
+// ── Auto-Provision ───────────────────────────────────────────────────────────
+
+export interface AutoProvisionResult {
+  client: Client;
+  isNew: boolean;
+  portalUrl?: string;
+  portalToken?: string;
+}
+
+export async function autoProvisionClient(
+  orgId: string,
+  input: z.infer<typeof AutoProvisionClientSchema>
+): Promise<AutoProvisionResult> {
+  const db = await getDB();
+
+  // Check if a client with this email already exists for the org
+  const existing = await db.findOne<Client>("clients", { org_id: orgId, email: input.email });
+  if (existing) {
+    // Parse JSON fields for consistent output
+    const client = await getClient(orgId, existing.id);
+    return { client, isNew: false };
+  }
+
+  // Resolve currency: use provided value, or fall back to org default
+  let currency = input.currency;
+  if (!currency) {
+    const org = await db.findById<Record<string, unknown>>("organizations", orgId);
+    currency = (org?.defaultCurrency as string) ?? "INR";
+  }
+
+  // Create the client with sensible defaults
+  const clientId = uuid();
+  const now = new Date();
+
+  await db.create<Client>("clients", {
+    id: clientId,
+    orgId,
+    name: input.name,
+    displayName: input.company || input.name,
+    email: input.email,
+    phone: input.phone || null,
+    currency,
+    paymentTerms: 30,
+    tags: JSON.stringify([]),
+    customFields: input.metadata ? JSON.stringify(input.metadata) : null,
+    outstandingBalance: 0,
+    totalBilled: 0,
+    totalPaid: 0,
+    portalEnabled: input.enablePortal ?? false,
+    portalEmail: input.enablePortal ? input.email : null,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Optionally create portal access with a login token
+  let portalUrl: string | undefined;
+  let portalToken: string | undefined;
+
+  if (input.enablePortal) {
+    portalToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(portalToken).digest("hex");
+
+    await db.create("client_portal_access", {
+      id: uuid(),
+      clientId,
+      orgId,
+      email: input.email,
+      tokenHash,
+      expiresAt: null,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    portalUrl = `${config.corsOrigin}/portal/login`;
+  }
+
+  const client = await getClient(orgId, clientId);
+  return { client, isNew: true, portalUrl, portalToken };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

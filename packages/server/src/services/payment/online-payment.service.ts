@@ -3,6 +3,7 @@ import { getDB } from "../../db/adapters/index";
 import { NotFoundError, BadRequestError } from "../../utils/AppError";
 import { InvoiceStatus, PaymentMethod } from "@emp-billing/shared";
 import { getGateway, listGateways } from "./gateways/index";
+import { emit } from "../../events/index";
 import type { Invoice, Client } from "@emp-billing/shared";
 import type { WebhookResult } from "./gateways/IPaymentGateway";
 import { logger } from "../../utils/logger";
@@ -346,6 +347,26 @@ async function recordGatewayPayment(
   await db.increment("clients", invoice.clientId, "total_paid", amount);
   await db.increment("clients", invoice.clientId, "outstanding_balance", -amount);
   await db.update("clients", invoice.clientId, { updatedAt: now }, orgId);
+
+  // Emit payment.received event
+  emit("payment.received", {
+    orgId,
+    paymentId,
+    payment: payment as unknown as Record<string, unknown>,
+    invoiceId: invoice.id,
+  });
+
+  // Emit invoice.paid if invoice is now fully paid
+  if (newStatus === InvoiceStatus.PAID) {
+    const paidInvoice = await db.findById<Invoice>("invoices", invoice.id, orgId);
+    if (paidInvoice) {
+      emit("invoice.paid", {
+        orgId,
+        invoiceId: invoice.id,
+        invoice: paidInvoice as unknown as Record<string, unknown>,
+      });
+    }
+  }
 
   return payment;
 }

@@ -144,6 +144,16 @@ export const ClientFilterSchema = PaginationSchema.extend({
   isActive: z.coerce.boolean().optional(),
 });
 
+export const AutoProvisionClientSchema = z.object({
+  name: z.string().min(1, "Client name is required").max(100),
+  email: z.string().email("Valid email required"),
+  phone: z.string().regex(phonePattern, "Phone must contain only numbers, spaces, and +/-(). characters").optional().or(z.literal("")),
+  company: z.string().max(100).optional(),
+  currency: z.string().length(3).optional(),
+  enablePortal: z.boolean().optional().default(false),
+  metadata: z.record(z.string()).optional(),
+});
+
 // ============================================================================
 // PRODUCT
 // ============================================================================
@@ -192,6 +202,21 @@ export const UsageFilterSchema = PaginationSchema.extend({
 
 export const UsageSummarySchema = z.object({
   productId: z.string().uuid("Valid product ID required"),
+  clientId: z.string().uuid("Valid client ID required"),
+  periodStart: z.coerce.date(),
+  periodEnd: z.coerce.date(),
+});
+
+export const ReportUsageSchema = z.object({
+  clientId: z.string().uuid("Valid client ID required"),
+  productId: z.string().uuid("Valid product ID required"),
+  quantity: z.number().positive("Quantity must be positive"),
+  description: z.string().max(255).optional(),
+  periodStart: z.coerce.date().optional(),
+  periodEnd: z.coerce.date().optional(),
+});
+
+export const GenerateUsageInvoiceSchema = z.object({
   clientId: z.string().uuid("Valid client ID required"),
   periodStart: z.coerce.date(),
   periodEnd: z.coerce.date(),

@@ -82,12 +82,11 @@ if (config.env !== "production") {
 }
 
 // ── Gateway webhooks — raw body needed, no auth ─────────────────────────────
-app.use("/webhooks/gateway", gatewayRoutes);
+app.use("/webhooks/gateway", rateLimit({ windowMs: 60 * 1000, max: 200 }), gatewayRoutes);
 
 // ── API v1 ────────────────────────────────────────────────────────────────────
 const v1 = express.Router();
-// Rate limiting disabled during E2E testing — re-enable for production
-// v1.use(rateLimit());
+v1.use(rateLimit());
 v1.use("/auth",         authRoutes);
 v1.use("/organizations", orgRoutes);
 v1.use("/clients",      clientRoutes);

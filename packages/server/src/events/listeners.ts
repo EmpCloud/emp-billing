@@ -36,6 +36,7 @@ const WEBHOOK_EVENTS: BillingEvent[] = [
   "subscription.cancelled",
   "subscription.expired",
   "payment.failed",
+  "subscription.payment_failed",
   "coupon.redeemed",
 ];
 
@@ -177,6 +178,16 @@ export function registerListeners(): void {
     }).catch((err) => logger.error("Failed to create notification for subscription.created", { err }));
   });
 
+  on("subscription.activated", (payload) => {
+    createNotification(payload.orgId, {
+      type: "subscription_created",
+      title: "Subscription Activated",
+      message: `A subscription has been activated.`,
+      entityType: "subscription",
+      entityId: payload.subscriptionId,
+    }).catch((err) => logger.error("Failed to create notification for subscription.activated", { err }));
+  });
+
   on("subscription.renewed", (payload) => {
     createNotification(payload.orgId, {
       type: "subscription_renewed",
@@ -205,6 +216,16 @@ export function registerListeners(): void {
       entityType: "invoice",
       entityId: payload.invoiceId,
     }).catch((err) => logger.error("Failed to create notification for payment.failed", { err }));
+  });
+
+  on("subscription.payment_failed", (payload) => {
+    createNotification(payload.orgId, {
+      type: "payment_failed",
+      title: "Subscription Payment Failed",
+      message: `Payment attempt #${payload.attemptNumber} failed for a subscription invoice.`,
+      entityType: "invoice",
+      entityId: payload.invoiceId,
+    }).catch((err) => logger.error("Failed to create notification for subscription.payment_failed", { err }));
   });
 
   on("subscription.trial_ending", (payload) => {

@@ -3,12 +3,15 @@ import { authenticate } from "../middleware/auth.middleware";
 import { requireSales, requireAccountant } from "../middleware/rbac.middleware";
 import { asyncHandler } from "../middleware/error.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { CreateClientSchema, UpdateClientSchema, ClientContactSchema } from "@emp-billing/shared";
+import { CreateClientSchema, UpdateClientSchema, ClientContactSchema, AutoProvisionClientSchema } from "@emp-billing/shared";
 import * as clientController from "../controllers/client.controller";
 import * as importExportController from "../controllers/import-export.controller";
 
 const router = Router();
 router.use(authenticate);
+
+// Auto-provision (before /:id to avoid route conflicts)
+router.post("/auto-provision", requireSales, validateBody(AutoProvisionClientSchema), asyncHandler(clientController.autoProvisionClient));
 
 // Import / Export (before /:id to avoid route conflicts)
 router.get("/export/csv",  requireSales, asyncHandler(importExportController.exportClients));

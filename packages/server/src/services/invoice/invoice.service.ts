@@ -7,6 +7,7 @@ import { InvoiceStatus, DiscountType, CreditNoteStatus } from "@emp-billing/shar
 import { computeLineItem, computeInvoiceTotals } from "./invoice.calculator";
 import { nextInvoiceNumber } from "../../utils/number-generator";
 import { generateInvoicePdf } from "../../utils/pdf";
+import { emit } from "../../events/index";
 import type { Invoice, InvoiceItem, CreditNote, Product } from "@emp-billing/shared";
 import type { z } from "zod";
 import type { CreateInvoiceSchema, UpdateInvoiceSchema, InvoiceFilterSchema } from "@emp-billing/shared";
@@ -215,7 +216,15 @@ export async function createInvoice(
     await autoApplyCredits(orgId, invoiceId, input.clientId);
   }
 
-  return getInvoice(orgId, invoiceId);
+  const createdInvoice = await getInvoice(orgId, invoiceId);
+
+  emit("invoice.created", {
+    orgId,
+    invoiceId,
+    invoice: createdInvoice as unknown as Record<string, unknown>,
+  });
+
+  return createdInvoice;
 }
 
 // ── Auto-apply credits ────────────────────────────────────────────────────────
@@ -403,11 +412,22 @@ export async function sendInvoice(orgId: string, id: string): Promise<Invoice> {
   if (invoice.status === InvoiceStatus.PAID) throw BadRequestError("Invoice is already paid");
 
   const now = new Date();
-  return db.update<Invoice>("invoices", id, {
+  const sentInvoice = await db.update<Invoice>("invoices", id, {
     status: InvoiceStatus.SENT,
     sentAt: now,
     updatedAt: now,
   }, orgId);
+
+  // Fetch client email for the sent event payload
+  const client = await db.findById<{ id: string; email: string }>("clients", invoice.clientId, orgId);
+  emit("invoice.sent", {
+    orgId,
+    invoiceId: id,
+    invoice: sentInvoice as unknown as Record<string, unknown>,
+    clientEmail: client?.email ?? "",
+  });
+
+  return sentInvoice;
 }
 
 // ── Duplicate ─────────────────────────────────────────────────────────────────
@@ -612,11 +632,30 @@ export async function markOverdueInvoices(orgId: string): Promise<number> {
   const db = await getDB();
   const today = dayjs().format("YYYY-MM-DD");
 
+  // Find invoices that are overdue before updating, so we can emit events
+  const sentInvoices = await db.findMany<Invoice>("invoices", {
+    where: { org_id: orgId, status: InvoiceStatus.SENT },
+  });
+  const overdueInvoices = sentInvoices.filter(
+    (inv) => dayjs(inv.dueDate).format("YYYY-MM-DD") < today
+  );
+
+  if (overdueInvoices.length === 0) return 0;
+
   const affected = await db.updateMany(
     "invoices",
     { org_id: orgId, status: InvoiceStatus.SENT },
     { status: InvoiceStatus.OVERDUE, updated_at: new Date() }
   );
+
+  // Emit overdue event for each affected invoice
+  for (const inv of overdueInvoices) {
+    emit("invoice.overdue", {
+      orgId,
+      invoiceId: inv.id,
+      invoice: inv as unknown as Record<string, unknown>,
+    });
+  }
 
   return affected;
 }

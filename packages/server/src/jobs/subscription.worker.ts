@@ -5,6 +5,7 @@ import { connection, QUEUE_NAMES, emailQueue } from "./queue";
 import { logger } from "../utils/logger";
 import { getDB } from "../db/adapters/index";
 import { SubscriptionStatus, SubscriptionEventType, BillingInterval } from "@emp-billing/shared";
+import { emit } from "../events/index";
 import * as subscriptionService from "../services/subscription/subscription.service";
 import { chargeSubscriptionRenewal } from "../services/payment/online-payment.service";
 import type { Subscription, Plan, DunningAttemptStatus } from "@emp-billing/shared";
@@ -115,6 +116,15 @@ const subscriptionWorker = new Worker(
               createdAt: now,
             });
 
+            // Emit subscription.activated event
+            emit("subscription.activated", {
+              orgId: sub.orgId,
+              subscriptionId: sub.id,
+              subscription: { id: sub.id, planId: sub.planId, status: SubscriptionStatus.ACTIVE },
+              planId: sub.planId,
+              clientId: sub.clientId,
+            });
+
             // Create first invoice
             const trialRenewal = await subscriptionService.renewSubscription(sub.id);
 
@@ -153,6 +163,14 @@ const subscriptionWorker = new Worker(
               eventType: SubscriptionEventType.EXPIRED,
               metadata: null,
               createdAt: now,
+            });
+
+            emit("subscription.expired", {
+              orgId: sub.orgId,
+              subscriptionId: sub.id,
+              subscription: { id: sub.id, planId: sub.planId, status: SubscriptionStatus.EXPIRED },
+              planId: sub.planId,
+              clientId: sub.clientId,
             });
 
             successCount++;
@@ -205,6 +223,24 @@ const subscriptionWorker = new Worker(
                 paymentError: chargeResult.error || "Auto-charge failed on renewal",
                 nextRetryAt: dayjs(now).add(1, "day").toDate(),
                 createdAt: now,
+              });
+
+              // Emit payment.failed event for the subscription renewal failure
+              emit("payment.failed", {
+                orgId: sub.orgId,
+                invoiceId: renewal.invoiceId,
+                subscriptionId: sub.id,
+                error: chargeResult.error || "Auto-charge failed on renewal",
+                attemptNumber: 1,
+              });
+
+              // Emit subscription.payment_failed for SaaS integrations
+              emit("subscription.payment_failed", {
+                orgId: sub.orgId,
+                invoiceId: renewal.invoiceId,
+                subscriptionId: sub.id,
+                error: chargeResult.error || "Auto-charge failed on renewal",
+                attemptNumber: 1,
               });
 
               logger.info("Subscription marked as PAST_DUE, dunning attempt created", {

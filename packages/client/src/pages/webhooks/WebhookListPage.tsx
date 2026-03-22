@@ -37,6 +37,19 @@ const WEBHOOK_EVENT_LABELS: Record<string, string> = {
   [WebhookEvent.QUOTE_DECLINED]: "Quote Declined",
   [WebhookEvent.CLIENT_CREATED]: "Client Created",
   [WebhookEvent.EXPENSE_CREATED]: "Expense Created",
+  [WebhookEvent.SUBSCRIPTION_CREATED]: "Subscription Created",
+  [WebhookEvent.SUBSCRIPTION_ACTIVATED]: "Subscription Activated",
+  [WebhookEvent.SUBSCRIPTION_TRIAL_ENDING]: "Subscription Trial Ending",
+  [WebhookEvent.SUBSCRIPTION_RENEWED]: "Subscription Renewed",
+  [WebhookEvent.SUBSCRIPTION_UPGRADED]: "Subscription Upgraded",
+  [WebhookEvent.SUBSCRIPTION_DOWNGRADED]: "Subscription Downgraded",
+  [WebhookEvent.SUBSCRIPTION_PAUSED]: "Subscription Paused",
+  [WebhookEvent.SUBSCRIPTION_RESUMED]: "Subscription Resumed",
+  [WebhookEvent.SUBSCRIPTION_CANCELLED]: "Subscription Cancelled",
+  [WebhookEvent.SUBSCRIPTION_EXPIRED]: "Subscription Expired",
+  [WebhookEvent.PAYMENT_FAILED]: "Payment Failed",
+  [WebhookEvent.SUBSCRIPTION_PAYMENT_FAILED]: "Subscription Payment Failed",
+  [WebhookEvent.COUPON_REDEEMED]: "Coupon Redeemed",
 };
 
 const FormSchema = z.object({

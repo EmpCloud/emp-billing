@@ -95,6 +95,7 @@ export interface BillingEventMap {
   "subscription.cancelled": SubscriptionEventPayload;
   "subscription.expired": SubscriptionEventPayload;
   "payment.failed": PaymentFailedPayload;
+  "subscription.payment_failed": PaymentFailedPayload;
   "coupon.redeemed": CouponRedeemedPayload;
 }
 

@@ -3,6 +3,7 @@ import { getDB } from "../../db/adapters/index";
 import { NotFoundError, BadRequestError } from "../../utils/AppError";
 import { InvoiceStatus, PaymentMethod, CreditNoteStatus } from "@emp-billing/shared";
 import { generateReceiptPdf } from "../../utils/pdf";
+import { emit } from "../../events/index";
 import type { Payment, Invoice, CreditNote } from "@emp-billing/shared";
 import type { z } from "zod";
 import type { CreatePaymentSchema, PaymentFilterSchema, RefundSchema } from "@emp-billing/shared";
@@ -171,6 +172,26 @@ export async function recordPayment(
   await db.increment("clients", input.clientId, "total_paid", input.amount);
   await db.increment("clients", input.clientId, "outstanding_balance", -input.amount);
   await db.update("clients", input.clientId, { updatedAt: now }, orgId);
+
+  // Emit payment.received event
+  emit("payment.received", {
+    orgId,
+    paymentId,
+    payment: payment as unknown as Record<string, unknown>,
+    invoiceId: input.invoiceId,
+  });
+
+  // Emit invoice.paid if invoice is now fully paid
+  if (invoiceToAllocate && input.invoiceId) {
+    const updatedInvoice = await db.findById<Invoice>("invoices", input.invoiceId, orgId);
+    if (updatedInvoice && updatedInvoice.status === InvoiceStatus.PAID) {
+      emit("invoice.paid", {
+        orgId,
+        invoiceId: input.invoiceId,
+        invoice: updatedInvoice as unknown as Record<string, unknown>,
+      });
+    }
+  }
 
   return { ...payment, creditNote };
 }
