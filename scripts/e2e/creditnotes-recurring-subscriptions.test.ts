@@ -1,9 +1,15 @@
 import { chromium, type Page, type BrowserContext } from "playwright";
+import * as fs from "fs";
 
 const BASE = "http://localhost:4001";
 let passed = 0;
 let failed = 0;
 const screenshotDir = "scripts/e2e/screenshots";
+
+// Ensure screenshot directory exists
+if (!fs.existsSync(screenshotDir)) {
+  fs.mkdirSync(screenshotDir, { recursive: true });
+}
 
 function log(icon: string, msg: string) {
   console.log(`${icon} ${msg}`);
@@ -30,6 +36,9 @@ async function test(name: string, page: Page, fn: () => Promise<void>) {
 async function login(page: Page) {
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForTimeout(1000);
+
+  // If already redirected to dashboard (session cookies), skip login
+  if (page.url().includes("/dashboard")) return;
 
   const emailInput = await page.$('input[type="email"]');
   if (emailInput) {
@@ -66,7 +75,8 @@ async function clickSidebarLink(page: Page, label: string) {
 }
 
 /**
- * Helper: Select the first non-empty option in a <select> element.
+ * Helper: Select the first non-empty option in a native <select> by its CSS selector.
+ * Also supports selecting the Nth select on the page via selectNthNonEmpty().
  */
 async function selectFirstNonEmptyOption(page: Page, selector: string): Promise<string> {
   await page.waitForSelector(selector, { timeout: 5000 });
@@ -77,6 +87,24 @@ async function selectFirstNonEmptyOption(page: Page, selector: string): Promise<
   if (options.length === 0) throw new Error(`No non-empty options found for ${selector}`);
   await page.selectOption(selector, options[0]);
   return options[0];
+}
+
+/**
+ * Helper: Select the first non-empty option from the Nth <select> on the page (0-based).
+ */
+async function selectNthSelectFirstOption(page: Page, nth: number): Promise<string> {
+  const selects = page.locator("select");
+  const count = await selects.count();
+  if (count <= nth) throw new Error(`Expected at least ${nth + 1} selects, found ${count}`);
+  const sel = selects.nth(nth);
+  await sel.waitFor({ state: "visible", timeout: 5000 });
+  const options = await sel.locator("option").allTextContents();
+  const values = await sel.locator("option").evaluateAll((opts) =>
+    opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== "")
+  );
+  if (values.length === 0) throw new Error(`No non-empty options found for select #${nth}`);
+  await sel.selectOption(values[0]);
+  return values[0];
 }
 
 // Track IDs across tests
@@ -208,8 +236,8 @@ let subscriptionId: string | undefined;
       throw new Error("Line item name 'E2E Credit Note Item' not found on detail page");
     }
 
-    // Verify totals section exists
-    if (!body.includes("Total") || !body.includes("Balance")) {
+    // Verify totals section exists (page shows "Balance Remaining")
+    if (!body.includes("Total") || (!body.includes("Balance") && !body.includes("balance"))) {
       throw new Error("Totals section (Total / Balance) not found on detail page");
     }
   });
@@ -374,14 +402,14 @@ let subscriptionId: string | undefined;
     const selectCount = await selects.count();
 
     // Client is the first select
-    await selectFirstNonEmptyOption(page, 'select >> nth=0');
+    await selectNthSelectFirstOption(page, 0);
 
     // Type select — keep as "invoice" (already default)
 
     // Frequency select — select "Monthly"
     // The frequency select is the third one (Client, Type, Frequency)
     if (selectCount >= 3) {
-      await page.selectOption('select >> nth=2', 'monthly');
+      await selects.nth(2).selectOption('monthly');
     }
 
     // Start date should already be filled with today
@@ -565,18 +593,10 @@ let subscriptionId: string | undefined;
     await newPlanBtn.click();
     await page.waitForURL("**/subscriptions/plans/new", { timeout: 10000 });
 
-    // Fill plan name
-    const nameInput = page.locator('input').first();
-    await nameInput.waitFor({ state: "visible", timeout: 5000 });
-    // The first input field on this page is "Plan Name"
-    // Use the label-based approach — find input near "Plan Name" label
-    const planNameInput = page.locator('input[placeholder*="Starter"], input[placeholder*="Professional"]').first();
-    if (await planNameInput.isVisible()) {
-      await planNameInput.fill("E2E Test Plan");
-    } else {
-      // fallback: fill the first visible input
-      await nameInput.fill("E2E Test Plan");
-    }
+    // Fill plan name — Input label="Plan Name" generates id="plan-name"
+    const planNameInput = page.locator('#plan-name').first();
+    await planNameInput.waitFor({ state: "visible", timeout: 5000 });
+    await planNameInput.fill("E2E Test Plan");
 
     // Fill description textarea
     const descTextarea = page.locator('textarea').first();
@@ -656,11 +676,11 @@ let subscriptionId: string | undefined;
     if (selectCount < 2) throw new Error(`Expected at least 2 selects (client, plan), found ${selectCount}`);
 
     // Select first client
-    await selectFirstNonEmptyOption(page, 'select >> nth=0');
+    await selectNthSelectFirstOption(page, 0);
     await page.waitForTimeout(500);
 
     // Select plan (second select)
-    await selectFirstNonEmptyOption(page, 'select >> nth=1');
+    await selectNthSelectFirstOption(page, 1);
     await page.waitForTimeout(500);
 
     // Quantity should default to 1 — leave it
@@ -777,8 +797,9 @@ let subscriptionId: string | undefined;
   await test("20. Cancel subscription — click Cancel, fill reason in modal, submit, verify Cancelled", page, async () => {
     if (!subscriptionId) throw new Error("No subscription ID");
 
-    // Click the "Cancel" button (variant="danger")
-    const cancelBtn = page.locator('button:has-text("Cancel")').filter({ hasNotText: /Keep|at Period/ }).first();
+    // Click the "Cancel" button (variant="danger") — avoid clicking the nav Cancel button
+    // The danger-variant cancel button has a specific XCircle icon
+    const cancelBtn = page.locator('button').filter({ hasText: "Cancel" }).filter({ has: page.locator('svg') }).first();
     await cancelBtn.waitFor({ state: "visible", timeout: 5000 });
     await cancelBtn.click();
 
@@ -787,6 +808,7 @@ let subscriptionId: string | undefined;
     await page.waitForTimeout(500);
 
     // Fill the cancellation reason textarea in the modal
+    // The textarea placeholder is "Why is this subscription being cancelled?"
     const reasonTextarea = page.locator('[role="dialog"] textarea, .fixed.inset-0 textarea').first();
     await reasonTextarea.waitFor({ state: "visible", timeout: 3000 });
     await reasonTextarea.fill("E2E test cancellation — no longer needed");
@@ -798,6 +820,7 @@ let subscriptionId: string | undefined;
     }
 
     // Click the confirm cancel button — "Cancel Immediately" or "Cancel at Period End"
+    // These are rendered in the Modal footer
     const confirmBtn = page.locator('[role="dialog"] button:has-text("Cancel Immediately"), .fixed.inset-0 button:has-text("Cancel Immediately"), [role="dialog"] button:has-text("Cancel at Period End"), .fixed.inset-0 button:has-text("Cancel at Period End")').first();
     await confirmBtn.waitFor({ state: "visible", timeout: 3000 });
     await confirmBtn.click();

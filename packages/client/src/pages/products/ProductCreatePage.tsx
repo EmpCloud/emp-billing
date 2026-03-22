@@ -13,11 +13,12 @@ import { Textarea } from "@/components/common/Input";
 import { PageHeader } from "@/components/common/PageHeader";
 
 // Use a modified schema for the form: rate is in display units (rupees), not paise
-const FormSchema = CreateProductSchema.omit({ rate: true, pricingTiers: true }).extend({
+const FormSchema = CreateProductSchema.omit({ rate: true, pricingTiers: true, taxRateId: true }).extend({
   rate: z.coerce
     .number()
     .min(0, "Rate must be non-negative"),
   pricingModel: z.nativeEnum(PricingModel).default(PricingModel.FLAT),
+  taxRateId: z.string().optional().transform((v) => (v === "" ? undefined : v)),
 });
 
 type FormValues = z.infer<typeof FormSchema>;

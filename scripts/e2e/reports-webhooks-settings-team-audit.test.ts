@@ -66,6 +66,9 @@ async function login(p: Page) {
   await p.goto(`${BASE}/login`, { waitUntil: "networkidle", timeout: 30000 });
   await p.waitForTimeout(1000);
 
+  // If already redirected to dashboard (session cookies), skip login
+  if (p.url().includes("/dashboard")) return;
+
   await p.waitForSelector('input[type="email"]', { timeout: 10000 });
   await p.fill('input[type="email"]', "admin@acme.com");
   await p.fill('input[type="password"]', "Admin@123");
@@ -405,26 +408,39 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
     await urlInput.fill("https://httpbin.org/post");
     await page.waitForTimeout(300);
 
-    // Select events — check at least 2 checkboxes in the event grid
-    const checkboxes = page.locator('input[type="checkbox"]');
+    // Select events — the checkboxes are controlled by react-hook-form setValue,
+    // so we need to click their parent label or the checkbox itself to trigger onChange.
+    // The events are rendered as <label><input type="checkbox" ...> Event Name</label>
+    const checkboxes = page.locator('[role="dialog"] input[type="checkbox"], .fixed input[type="checkbox"]');
     const checkboxCount = await checkboxes.count();
-    if (checkboxCount === 0) throw new Error("No event checkboxes found in webhook form");
+    if (checkboxCount === 0) {
+      // Fallback: try all checkboxes on page
+      const allCheckboxes = page.locator('input[type="checkbox"]');
+      const allCount = await allCheckboxes.count();
+      if (allCount === 0) throw new Error("No event checkboxes found in webhook form");
 
-    // Check first 3 events (or however many are available)
-    const toCheck = Math.min(3, checkboxCount);
-    for (let i = 0; i < toCheck; i++) {
-      await checkboxes.nth(i).check();
-      await page.waitForTimeout(200);
+      const toCheck = Math.min(3, allCount);
+      for (let i = 0; i < toCheck; i++) {
+        await allCheckboxes.nth(i).click();
+        await page.waitForTimeout(200);
+      }
+    } else {
+      const toCheck = Math.min(3, checkboxCount);
+      for (let i = 0; i < toCheck; i++) {
+        await checkboxes.nth(i).click();
+        await page.waitForTimeout(200);
+      }
     }
 
     // Click "Add Webhook" submit button inside the modal form
+    // The form has <Button type="submit">Add Webhook</Button>
     const submitBtn = page.locator('button[type="submit"]').filter({ hasText: /Add Webhook/i }).first();
     const submitVisible = await submitBtn.isVisible().catch(() => false);
     if (submitVisible) {
       await submitBtn.click();
     } else {
-      // Fallback: click any submit button in the form
-      const fallbackBtn = page.locator("form button[type='submit']").first();
+      // Fallback: click any submit button in the dialog
+      const fallbackBtn = page.locator('[role="dialog"] button[type="submit"], form button[type="submit"]').first();
       await fallbackBtn.click();
     }
     await page.waitForTimeout(2000);
@@ -646,49 +662,55 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
     await page.waitForTimeout(1000);
 
     // Fill the tax rate form in the modal
-    const nameInput = page.locator('input[name="name"], input[placeholder*="name" i]').first();
+    // The form uses register("name") so input has name="name"
+    const nameInput = page.locator('[role="dialog"] input[name="name"]').first();
     await nameInput.waitFor({ timeout: 5000 });
     await nameInput.fill("E2E GST 18%");
 
-    // Fill rate
-    const rateInput = page.locator('input[name="rate"], input[placeholder*="rate" i], input[type="number"]').first();
+    // Fill rate — registered as name="rate"
+    const rateInput = page.locator('[role="dialog"] input[name="rate"]').first();
     await rateInput.waitFor({ timeout: 3000 });
     await rateInput.fill("18");
     await page.waitForTimeout(300);
 
-    // Submit the form
-    const saveBtn = page.locator("button[type='submit']").filter({ hasText: /Save|Add|Create/i }).first();
-    const saveVisible = await saveBtn.isVisible().catch(() => false);
-    if (saveVisible) {
-      await saveBtn.click();
+    // Submit the form — the "Create Tax Rate" button is in the Modal footer (not type="submit")
+    // It's rendered as <Button onClick={handleSubmit(onSubmit)}>Create Tax Rate</Button>
+    const createTaxBtn = page.locator('[role="dialog"] button').filter({ hasText: /Create Tax Rate/i }).first();
+    const createTaxVisible = await createTaxBtn.isVisible().catch(() => false);
+    if (createTaxVisible) {
+      await createTaxBtn.click();
     } else {
-      // Fallback: any Save button
-      await page.locator("button").filter({ hasText: /Save/i }).last().click();
+      // Fallback: try form submit button
+      const fallbackBtn = page.locator("button").filter({ hasText: /Save|Add|Create/i }).last();
+      await fallbackBtn.click();
     }
     await page.waitForTimeout(2000);
 
     // Verify it appears in the list
     await assertBodyContains(page, "E2E GST 18%");
 
-    // Delete the created tax rate — find the row with "E2E GST 18%" and click its delete button
-    page.on("dialog", async (dialog) => {
-      await dialog.accept();
-    });
-
+    // Delete the created tax rate — find the row with "E2E GST 18%" and click its trash icon button
+    // The delete button on each row is an icon-only button with title="Delete"
     const taxRow = page.locator("tr, [class*='row']").filter({ hasText: "E2E GST 18%" }).first();
-    const deleteBtn = taxRow.locator("button").filter({ hasText: /Delete/i }).first();
-    const deleteBtnExists = await deleteBtn.isVisible().catch(() => false);
-    if (deleteBtnExists) {
-      await deleteBtn.click();
-      await page.waitForTimeout(2000);
+    const trashBtn = taxRow.locator('button[title="Delete"], button:has(svg)').last();
+    const trashBtnExists = await trashBtn.isVisible().catch(() => false);
+    if (trashBtnExists) {
+      await trashBtn.click();
+      await page.waitForTimeout(1000);
+
+      // A confirmation modal appears — click the "Delete" button in the modal
+      const confirmDeleteBtn = page.locator('[role="dialog"] button').filter({ hasText: /^Delete$/i }).first();
+      const confirmVisible = await confirmDeleteBtn.isVisible().catch(() => false);
+      if (confirmVisible) {
+        await confirmDeleteBtn.click();
+        await page.waitForTimeout(2000);
+      }
     } else {
-      // Try clicking a delete icon button in the row
-      const iconDeleteBtn = taxRow.locator('button:has(svg)').last();
-      await iconDeleteBtn.click();
-      await page.waitForTimeout(2000);
+      throw new Error("Delete button not found on tax rate row");
     }
 
     // Verify "E2E GST 18%" is gone
+    await page.waitForTimeout(1000);
     const bodyAfter = await page.textContent("body");
     if (bodyAfter?.includes("E2E GST 18%")) {
       throw new Error("Tax rate 'E2E GST 18%' still visible after deletion");
@@ -724,37 +746,43 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
     await inviteBtn.click();
     await page.waitForTimeout(1000);
 
-    // Fill first name
-    const firstNameInput = page.locator('input[name="firstName"]').first();
+    // The invite form uses react-hook-form with register() — inputs have name attributes
+    // Wait for the modal to fully render
+    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForTimeout(500);
+
+    // Fill first name — registered as name="firstName", input has id="first-name"
+    const firstNameInput = page.locator('[role="dialog"] input[name="firstName"]').first();
     await firstNameInput.waitFor({ timeout: 5000 });
     await firstNameInput.fill("E2E Test");
 
-    // Fill last name
-    const lastNameInput = page.locator('input[name="lastName"]').first();
+    // Fill last name — registered as name="lastName"
+    const lastNameInput = page.locator('[role="dialog"] input[name="lastName"]').first();
     await lastNameInput.fill("User");
 
-    // Fill email
-    const emailInput = page.locator('input[name="email"], input[type="email"]').last();
+    // Fill email — registered as name="email"
+    const emailInput = page.locator('[role="dialog"] input[name="email"]').first();
     await emailInput.fill(`e2e-invite-${Date.now()}@example.com`);
     await page.waitForTimeout(300);
 
-    // Select role from dropdown
-    const roleSelect = page.locator('select[name="role"]').first();
+    // Select role from dropdown — registered as name="role"
+    const roleSelect = page.locator('[role="dialog"] select[name="role"]').first();
     const roleSelectVisible = await roleSelect.isVisible().catch(() => false);
     if (roleSelectVisible) {
       await roleSelect.selectOption("viewer");
     }
     await page.waitForTimeout(300);
 
-    // Click Send Invite button in modal footer
-    const sendBtn = page.locator("button").filter({ hasText: /Send Invite/i }).first();
+    // Click "Send Invite" button in modal footer
+    // This button uses onClick={handleSubmit(onInviteSubmit)}, not type="submit"
+    const sendBtn = page.locator('[role="dialog"] button').filter({ hasText: /Send Invite/i }).first();
     const sendVisible = await sendBtn.isVisible().catch(() => false);
     if (sendVisible) {
       await sendBtn.click();
     } else {
-      // Fallback: submit the form
-      const submitBtn = page.locator("button[type='submit']").last();
-      await submitBtn.click();
+      // Fallback: try any button with "Invite" text
+      const fallbackBtn = page.locator("button").filter({ hasText: /Invite/i }).last();
+      await fallbackBtn.click();
     }
     await page.waitForTimeout(2000);
 

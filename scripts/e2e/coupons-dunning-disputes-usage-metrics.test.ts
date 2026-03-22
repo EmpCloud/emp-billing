@@ -7,13 +7,13 @@
  * Run:  npx tsx scripts/e2e/coupons-dunning-disputes-usage-metrics.test.ts
  */
 import { chromium, type Page, type BrowserContext } from "playwright";
-import * as path from "path";
 import * as fs from "fs";
+import * as path from "path";
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:4001";
 const EMAIL = "admin@acme.com";
 const PASSWORD = "Admin@123";
-const SCREENSHOT_DIR = path.resolve(__dirname, "screenshots");
+const SCREENSHOT_DIR = "scripts/e2e/screenshots";
 const DELAY_BETWEEN_TESTS = 1500;
 
 // Ensure screenshot directory exists
@@ -95,8 +95,16 @@ async function loginViaUI(page: Page): Promise<void> {
   await page.goto(`${BASE_URL}/login`, { waitUntil: "domcontentloaded", timeout: 30000 });
   await handleNgrokInterstitial(page);
 
-  // Wait for login form
-  await page.waitForSelector('input[type="email"]', { timeout: 10000 });
+  // If already redirected to dashboard (session cookies), skip login
+  if (page.url().includes("/dashboard")) return;
+
+  // Race: either the email input appears (we need to login) or we redirect to dashboard
+  const result = await Promise.race([
+    page.waitForSelector('input[type="email"]', { timeout: 10000 }).then(() => "login" as const),
+    page.waitForURL("**/dashboard", { timeout: 10000 }).then(() => "dashboard" as const),
+  ]).catch(() => "login" as const);
+
+  if (result === "dashboard" || page.url().includes("/dashboard")) return;
 
   // Clear any prefilled values
   const emailInput = page.locator('input[type="email"]');
@@ -234,14 +242,15 @@ let createdFixedCouponId: string | null = null;
 
     // Fill Value = 15
     // The value input changes label based on type. For percentage it is "Percentage (%)"
-    const valueInput = page.locator('#percentage-(%)');
-    // Fallback: find by type=number near the percentage label
-    const percentageInput = page.locator('input[type="number"]').first();
+    // The id generated from "Percentage (%)" contains special chars, so use CSS.escape or attribute selector
+    // The input is registered as "value" so we can target by name
+    const percentageInput = page.locator('input[name="value"]');
+    await percentageInput.waitFor({ timeout: 5000 });
     await percentageInput.fill("15");
 
     // Set valid from date — it should already have today's date as default
-    // The "Valid From" input has id="valid-from"
-    const validFromInput = page.locator('#valid-from');
+    // The "Valid From" input has name="validFrom"
+    const validFromInput = page.locator('input[name="validFrom"]');
     const today = new Date().toISOString().slice(0, 10);
     await validFromInput.fill(today);
 
@@ -289,19 +298,14 @@ let createdFixedCouponId: string | null = null;
     await page.waitForTimeout(500); // Wait for UI to re-render
 
     // Fill Amount = 50 (this is 50.00 in display units, will be stored as 5000 paise)
-    // After selecting "Fixed Amount", the value input has placeholder "500.00"
-    const amountInput = page.locator('input[placeholder="500.00"]');
-    if (await amountInput.count() > 0) {
-      await amountInput.fill("50");
-    } else {
-      // Fallback: find by the number inputs, the value one should be the second
-      const numberInputs = page.locator('section:has-text("Discount") input[type="number"]');
-      await numberInputs.first().fill("50");
-    }
+    // The value input is registered as name="value"
+    const amountInput = page.locator('input[name="value"]');
+    await amountInput.waitFor({ timeout: 5000 });
+    await amountInput.fill("50");
 
-    // Set valid from date
+    // Set valid from date — input registered as name="validFrom"
     const today = new Date().toISOString().slice(0, 10);
-    await page.locator('#valid-from').fill(today);
+    await page.locator('input[name="validFrom"]').fill(today);
 
     // Click Create Coupon
     await page.click('button:has-text("Create Coupon")');
@@ -389,17 +393,16 @@ let createdFixedCouponId: string | null = null;
     await page.waitForSelector("text=Edit Coupon", { timeout: 10000 });
 
     // Clear the Max Redemptions field (leave it empty for unlimited)
-    // The input has id="max-redemptions" (derived from label "Max Redemptions")
-    const maxRedemptionsInput = page.locator('#max-redemptions');
+    // The input is registered with name="maxRedemptions"
+    const maxRedemptionsInput = page.locator('input[name="maxRedemptions"]');
     await maxRedemptionsInput.waitFor({ timeout: 5000 });
     await maxRedemptionsInput.fill("");
 
     // Also clear Max Redemptions Per Client
-    // It does not have the standard id since label is in a separate element
-    const maxPerClientInputs = page.locator('input[placeholder="Unlimited"]');
-    const count = await maxPerClientInputs.count();
-    for (let i = 0; i < count; i++) {
-      await maxPerClientInputs.nth(i).fill("");
+    // The input is registered with name="maxRedemptionsPerClient"
+    const maxPerClientInput = page.locator('input[name="maxRedemptionsPerClient"]');
+    if (await maxPerClientInput.isVisible().catch(() => false)) {
+      await maxPerClientInput.fill("");
     }
 
     // Click Save Changes
@@ -585,7 +588,7 @@ let createdFixedCouponId: string | null = null;
     }
 
     // Verify page heading
-    await page.waitForSelector("h1:has-text('Disputes')", { timeout: 10000 });
+    await page.waitForSelector('h1:has-text("Disputes")', { timeout: 10000 });
 
     // Verify filter buttons exist: All, Open, Under Review, Resolved, Closed
     const filterLabels = ["All", "Open", "Under Review", "Resolved", "Closed"];
@@ -616,25 +619,25 @@ let createdFixedCouponId: string | null = null;
     await page.click('button:has-text("Open")');
     await page.waitForTimeout(1500);
     // Heading should still be present
-    const headingAfterOpen = await page.$("h1:has-text('Disputes')");
+    const headingAfterOpen = await page.$('h1:has-text("Disputes")');
     if (!headingAfterOpen) throw new Error("Disputes heading lost after clicking 'Open' filter");
 
     // Click "Under Review" filter
     await page.click('button:has-text("Under Review")');
     await page.waitForTimeout(1500);
-    const headingAfterReview = await page.$("h1:has-text('Disputes')");
+    const headingAfterReview = await page.$('h1:has-text("Disputes")');
     if (!headingAfterReview) throw new Error("Disputes heading lost after clicking 'Under Review' filter");
 
     // Click "Resolved" filter
     await page.click('button:has-text("Resolved")');
     await page.waitForTimeout(1500);
-    const headingAfterResolved = await page.$("h1:has-text('Disputes')");
+    const headingAfterResolved = await page.$('h1:has-text("Disputes")');
     if (!headingAfterResolved) throw new Error("Disputes heading lost after clicking 'Resolved' filter");
 
     // Click "All" to reset
     await page.click('button:has-text("All")');
     await page.waitForTimeout(1000);
-    const headingAfterAll = await page.$("h1:has-text('Disputes')");
+    const headingAfterAll = await page.$('h1:has-text("Disputes")');
     if (!headingAfterAll) throw new Error("Disputes heading lost after clicking 'All' filter");
   }, context);
 
@@ -771,33 +774,48 @@ let createdFixedCouponId: string | null = null;
     // Wait for selects to populate (products and clients need to load)
     await page.waitForTimeout(2000);
 
-    // Select product from dropdown — first select in the modal
-    const productSelect = page.locator('select').filter({ has: page.locator('option:has-text("Select product...")') });
-    if (await productSelect.count() > 0) {
-      // Get all options
-      const options = await productSelect.locator("option").allTextContents();
-      // Find first real option (not "Select product...")
-      const realOptions = options.filter((o) => o !== "Select product..." && o !== "");
-      if (realOptions.length === 0) {
-        throw new Error("No metered products available in dropdown — cannot record usage");
-      }
-      // Select the first real option by its index (index 1, since 0 is placeholder)
-      await productSelect.selectOption({ index: 1 });
-    } else {
-      throw new Error("Product select dropdown not found in modal");
-    }
+    // Select product from dropdown — the modal has raw <select> elements
+    // First select in the modal is "Product (Metered)", second is "Client"
+    const modalSelects = page.locator('.fixed select, [role="dialog"] select');
+    const modalSelectCount = await modalSelects.count();
 
-    // Select client from dropdown
-    const clientSelect = page.locator('select').filter({ has: page.locator('option:has-text("Select client...")') });
-    if (await clientSelect.count() > 0) {
-      const clientOptions = await clientSelect.locator("option").allTextContents();
-      const realClientOptions = clientOptions.filter((o) => o !== "Select client..." && o !== "");
-      if (realClientOptions.length === 0) {
-        throw new Error("No clients available in dropdown — cannot record usage");
-      }
-      await clientSelect.selectOption({ index: 1 });
+    if (modalSelectCount < 2) {
+      // Fallback: look for all selects on page — last 2 are likely in the modal
+      const allSelects = page.locator('select');
+      const allCount = await allSelects.count();
+      if (allCount < 2) throw new Error("Not enough <select> elements found for usage modal");
+
+      // Product select
+      const productSelect = allSelects.nth(allCount - 2);
+      const prodOpts = await productSelect.locator("option").evaluateAll((opts) =>
+        opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== "")
+      );
+      if (prodOpts.length === 0) throw new Error("No metered products available in dropdown");
+      await productSelect.selectOption(prodOpts[0]);
+
+      // Client select
+      const clientSelect = allSelects.nth(allCount - 1);
+      const clientOpts = await clientSelect.locator("option").evaluateAll((opts) =>
+        opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== "")
+      );
+      if (clientOpts.length === 0) throw new Error("No clients available in dropdown");
+      await clientSelect.selectOption(clientOpts[0]);
     } else {
-      throw new Error("Client select dropdown not found in modal");
+      // Product select — first modal select
+      const productSelect = modalSelects.first();
+      const prodOpts = await productSelect.locator("option").evaluateAll((opts) =>
+        opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== "")
+      );
+      if (prodOpts.length === 0) throw new Error("No metered products available in dropdown");
+      await productSelect.selectOption(prodOpts[0]);
+
+      // Client select — second modal select
+      const clientSelect = modalSelects.nth(1);
+      const clientOpts = await clientSelect.locator("option").evaluateAll((opts) =>
+        opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== "")
+      );
+      if (clientOpts.length === 0) throw new Error("No clients available in dropdown");
+      await clientSelect.selectOption(clientOpts[0]);
     }
 
     // Fill quantity
@@ -814,16 +832,16 @@ let createdFixedCouponId: string | null = null;
     const periodStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
     const periodEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
 
-    const dateInputs = page.locator('.fixed input[type="date"]');
-    const dateCount = await dateInputs.count();
-    if (dateCount >= 2) {
-      await dateInputs.nth(0).fill(periodStart);
-      await dateInputs.nth(1).fill(periodEnd);
+    // The Modal renders with [role="dialog"]. Find date inputs within dialog or .fixed overlay.
+    const dialogDateInputs = page.locator('[role="dialog"] input[type="date"], .fixed input[type="date"]');
+    const dialogDateCount = await dialogDateInputs.count();
+    if (dialogDateCount >= 2) {
+      await dialogDateInputs.nth(0).fill(periodStart);
+      await dialogDateInputs.nth(1).fill(periodEnd);
     } else {
-      // Fallback: look for all date inputs in modal context
+      // Fallback: look for all date inputs — the last two are likely in the modal
       const allDateInputs = page.locator('input[type="date"]');
       const allCount = await allDateInputs.count();
-      // The last two date inputs are likely in the modal (period start/end)
       if (allCount >= 2) {
         await allDateInputs.nth(allCount - 2).fill(periodStart);
         await allDateInputs.nth(allCount - 1).fill(periodEnd);
@@ -831,15 +849,10 @@ let createdFixedCouponId: string | null = null;
     }
 
     // Click Record (submit) button in modal
-    // The submit button says "Record" (not "Record Usage" — that is the page button)
-    const submitBtn = page.locator('.fixed button[type="submit"]:has-text("Record")');
-    if (await submitBtn.count() === 0) {
-      // Fallback
-      const altSubmit = page.locator('button[type="submit"]').last();
-      await altSubmit.click();
-    } else {
-      await submitBtn.click();
-    }
+    // The submit button says "Record" and is disabled={recordUsage.isPending}
+    const submitBtn = page.locator('[role="dialog"] button[type="submit"], .fixed button[type="submit"]').last();
+    await submitBtn.waitFor({ timeout: 5000 });
+    await submitBtn.click();
 
     // Wait for toast
     await waitForToast(page, "Usage recorded", 15000);
@@ -913,13 +926,19 @@ let createdFixedCouponId: string | null = null;
     }
 
     // Verify each card has a numeric value (look for text-xl font-bold elements)
-    const valueElements = page.locator(".text-xl.font-bold");
+    // The metrics page renders <p class="text-xl font-bold ..."> for each stat value
+    const valueElements = page.locator("p.text-xl.font-bold");
     const count = await valueElements.count();
     if (count < 4) {
-      throw new Error(`Expected at least 4 metric value elements, found ${count}`);
+      // Fallback: try broader selector for any element with these classes
+      const fallbackValues = page.locator(".text-xl.font-bold");
+      const fallbackCount = await fallbackValues.count();
+      if (fallbackCount < 4) {
+        throw new Error(`Expected at least 4 metric value elements, found ${fallbackCount}`);
+      }
     }
 
-    // Verify each value has some text content (not empty)
+    // Verify at least the first 4 values have some text content
     for (let i = 0; i < Math.min(count, 5); i++) {
       const text = await valueElements.nth(i).textContent();
       if (!text || text.trim().length === 0) {

@@ -35,6 +35,9 @@ async function login(page: Page) {
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForTimeout(1000);
 
+  // If already redirected to dashboard (session cookies), skip login
+  if (page.url().includes("/dashboard")) return;
+
   await page.waitForSelector('input[type="email"]', { timeout: 10000 });
   await page.fill('input[type="email"]', "admin@acme.com");
   await page.fill('input[type="password"]', "Admin@123");
@@ -187,8 +190,11 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
     await page.goto(`${BASE}/payments`, { waitUntil: "networkidle", timeout: 15000 });
     await page.waitForTimeout(500);
 
-    // The SearchableSelect trigger for method filter shows "All Methods" as placeholder
-    const filterButton = page.locator('button:has-text("All Methods")').first();
+    // The SearchableSelect trigger is inside a div.w-48 container; use the button inside it.
+    // The trigger button is the only <button> inside the filter area (not the Record Payment btn).
+    // Use the container div with class w-48 to scope the selector.
+    const filterContainer = page.locator("div.w-48").first();
+    const filterButton = filterContainer.locator("button").first();
     await filterButton.waitFor({ timeout: 5000 });
     await filterButton.click();
     await page.waitForTimeout(300);
@@ -213,7 +219,7 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       throw new Error(`Expected filter button to show "Cash", got "${buttonText}"`);
     }
 
-    // Clear filter by selecting "All Methods" again
+    // Clear filter by selecting "All Methods" again — re-use the same stable locator
     await filterButton.click();
     await page.waitForTimeout(300);
     const clearSearchInput = page.locator('input[placeholder="Search..."]').first();
@@ -248,9 +254,20 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       throw new Error("Record Payment page heading not found");
     }
 
-    // Select client from dropdown (native <select>)
-    const clientSelect = page.locator('select').first();
+    // Select client from dropdown (native <select> with id="client")
+    const clientSelect = page.locator('select#client');
     await clientSelect.waitFor({ timeout: 5000 });
+    // Wait for client options to be populated by the API
+    await page.waitForFunction(
+      () => {
+        const sel = document.querySelector('select#client');
+        if (!sel) return false;
+        const opts = sel.querySelectorAll('option');
+        // Need at least 2 options (placeholder + one real client)
+        return opts.length >= 2;
+      },
+      { timeout: 10000 },
+    );
     // Get the first non-empty option value
     const clientOptions = await clientSelect.locator("option").all();
     let selectedClientValue = "";
@@ -294,8 +311,18 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       await dateInput.fill("2026-03-22");
     }
 
-    // Select payment method via SearchableSelect
-    await selectSearchableOption(page, "Payment Method", "Bank");
+    // Select payment method via SearchableSelect (trigger button has id="payment-method")
+    const methodTrigger = page.locator('button#payment-method');
+    await methodTrigger.waitFor({ timeout: 5000 });
+    await methodTrigger.click();
+    await page.waitForTimeout(300);
+    const methodSearch = page.locator('input[placeholder="Search..."]').first();
+    await methodSearch.waitFor({ timeout: 3000 });
+    await methodSearch.fill("Bank");
+    await page.waitForTimeout(300);
+    const methodOption = page.locator('li[role="option"]').first();
+    await methodOption.waitFor({ timeout: 3000 });
+    await methodOption.click();
     await page.waitForTimeout(300);
 
     // Fill reference number
@@ -613,16 +640,23 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
 
     await page.waitForURL(`**/expenses/${createdExpenseId}/edit`, { timeout: 10000 });
 
-    // Wait for form to populate
-    await page.waitForTimeout(1000);
+    // Wait for form to be fully populated by the useEffect that resets form with expense data.
+    // The description textarea should have a non-empty value once the expense data loads.
+    const descTextarea = page.locator("textarea").first();
+    await descTextarea.waitFor({ timeout: 5000 });
+    await page.waitForFunction(
+      () => {
+        const ta = document.querySelector("textarea");
+        return ta && ta.value.length > 0;
+      },
+      { timeout: 10000 },
+    );
 
     // Change description
-    const descTextarea = page.locator("textarea").first();
-    await descTextarea.waitFor({ timeout: 3000 });
     await descTextarea.fill("E2E Updated Expense " + Date.now());
 
     // Change amount
-    const amountInput = page.locator('input[type="number"]').first();
+    const amountInput = page.locator('input#amount');
     await amountInput.waitFor({ timeout: 3000 });
     await amountInput.fill("999");
 
@@ -634,7 +668,7 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
     // Wait for toast "Expense updated"
     await waitForToast(page, "Expense updated", 10000);
 
-    // Verify redirect
+    // Verify redirect — the onSuccess callback in ExpenseEditPage navigates to /expenses
     await page.waitForURL("**/expenses", { timeout: 10000 });
   });
 
@@ -914,6 +948,13 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       createdVendorId = match[1];
     }
 
+    // Wait for the vendor detail page to fully load — the "Contact Information"
+    // section heading only renders after the vendor data is fetched.
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Contact Information"),
+      { timeout: 10000 },
+    );
+
     // Verify detail page shows vendor info
     const body = await page.textContent("body");
     if (!body) throw new Error("Vendor detail page is empty");
@@ -928,7 +969,7 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       throw new Error("Vendor company not displayed on detail page");
     }
 
-    // Verify standard sections are present
+    // Verify standard sections are present (already confirmed above, but double-check)
     if (!body.includes("Contact Information")) {
       throw new Error("Contact Information section not found on vendor detail page");
     }
@@ -1017,20 +1058,40 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
     await page.goto(`${BASE}/vendors`, { waitUntil: "networkidle", timeout: 15000 });
     await page.waitForTimeout(1000);
 
+    // Wait for the vendors table to load
+    const table = await page.$("table");
+    if (!table) {
+      // No table — use API fallback
+      await page.evaluate(async (id) => {
+        const token = localStorage.getItem("access_token");
+        await fetch(`/api/v1/vendors/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }, createdVendorId);
+      return;
+    }
+
     // Find the vendor row
     const vendorRow = page.locator(`table tbody tr:has-text("${uniqueVendorName.slice(0, 15)}")`).first();
     const rowExists = await vendorRow.isVisible().catch(() => false);
 
-    // Set up dialog handler before clicking delete
-    page.once("dialog", (dialog) => dialog.accept());
-
     if (rowExists) {
+      // Set up dialog handler BEFORE clicking delete — must be registered first
+      page.once("dialog", (dialog) => dialog.accept());
+
       // Click the Delete button in that row
       const deleteBtn = vendorRow.locator('button:has-text("Delete")').first();
+      await deleteBtn.waitFor({ timeout: 5000 });
       await deleteBtn.click();
+
+      // Wait for toast "Vendor deleted"
+      await waitForToast(page, "Vendor deleted", 10000);
+
+      // Wait for list to update
+      await page.waitForTimeout(1000);
     } else {
-      // Navigate to list and try to find any vendor row with delete button
-      // Use API as fallback to delete
+      // Vendor row not visible — use API as fallback to delete
       await page.evaluate(async (id) => {
         const token = localStorage.getItem("access_token");
         await fetch(`/api/v1/vendors/${id}`, {
@@ -1040,20 +1101,7 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       }, createdVendorId);
       // Verify deletion via reload
       await page.reload({ waitUntil: "networkidle" });
-      return;
     }
-
-    // Wait for toast "Vendor deleted"
-    await waitForToast(page, "Vendor deleted", 10000);
-
-    // Wait for list to update
-    await page.waitForTimeout(1000);
-
-    // Verify the vendor is removed (either from the table or shows as inactive)
-    const body = await page.textContent("body");
-    // The vendor should either be gone or marked as inactive
-    // since it's a soft delete (deactivate), it might still show if "All" filter is active
-    // Just verify the delete action completed without error
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

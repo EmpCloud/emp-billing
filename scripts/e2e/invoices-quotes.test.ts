@@ -87,9 +87,12 @@ async function loginViaUI(page: Page): Promise<void> {
   await page.goto(`${BASE_URL}/login`, { waitUntil: "networkidle", timeout: 30000 });
   await handleNgrokInterstitial(page);
 
-  // Fill credentials via UI
-  await page.fill('input[type="email"]', EMAIL);
-  await page.fill('input[type="password"]', PASSWORD);
+  // If already redirected to dashboard (session cookies / persisted auth), skip login
+  if (page.url().includes("/dashboard")) return;
+
+  // The Input component generates id from label:  label="Email" → id="email"
+  await page.fill('#email', EMAIL);
+  await page.fill('#password', PASSWORD);
   await page.click('button[type="submit"]');
 
   // Wait for redirect to dashboard
