@@ -13,7 +13,9 @@ export function LoginPage() {
   const login = useLogin();
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(LoginSchema),
-    defaultValues: { email: "admin@acme.com", password: "Admin@123" },
+    defaultValues: import.meta.env.DEV
+      ? { email: "admin@acme.com", password: "Admin@123" }
+      : { email: "", password: "" },
   });
 
   return (

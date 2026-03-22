@@ -1,60 +1,105 @@
 import type { Request, Response, NextFunction } from "express";
 import { config } from "../../config/index";
+import Redis from "ioredis";
+import { logger } from "../../utils/logger";
 
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
+// Lazy-initialized Redis client for rate limiting
+let redis: Redis | null = null;
+let redisAvailable = true;
 
-const store = new Map<string, RateLimitEntry>();
+function getRedis(): Redis {
+  if (!redis) {
+    redis = new Redis({
+      host: config.redis.host,
+      port: config.redis.port,
+      password: config.redis.password || undefined,
+      maxRetriesPerRequest: 1,
+      lazyConnect: true,
+      enableOfflineQueue: false,
+    });
 
-// Clean up expired entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of store.entries()) {
-    if (entry.resetTime <= now) store.delete(key);
+    redis.on("error", (err) => {
+      if (redisAvailable) {
+        logger.warn("Rate-limit Redis connection lost — falling back to permissive mode", { err: err.message });
+        redisAvailable = false;
+      }
+    });
+
+    redis.on("connect", () => {
+      redisAvailable = true;
+    });
+
+    redis.connect().catch(() => {
+      redisAvailable = false;
+    });
   }
-}, 5 * 60 * 1000);
+  return redis;
+}
 
 export function rateLimit(opts?: { windowMs?: number; max?: number }) {
   const windowMs = opts?.windowMs ?? config.rateLimit.windowMs;
   const max = opts?.max ?? config.rateLimit.max;
+  const windowSeconds = Math.ceil(windowMs / 1000);
 
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const key =
       req.ip || req.headers["x-forwarded-for"]?.toString() || "unknown";
-    const now = Date.now();
-    let entry = store.get(key);
+    const redisKey = `rl:${key}:${windowSeconds}:${max}`;
 
-    if (!entry || entry.resetTime <= now) {
-      entry = { count: 0, resetTime: now + windowMs };
-      store.set(key, entry);
-    }
+    const client = getRedis();
 
-    entry.count++;
-
-    // Set rate limit headers
-    res.setHeader("X-RateLimit-Limit", max);
-    res.setHeader(
-      "X-RateLimit-Remaining",
-      Math.max(0, max - entry.count)
-    );
-    res.setHeader(
-      "X-RateLimit-Reset",
-      Math.ceil(entry.resetTime / 1000)
-    );
-
-    if (entry.count > max) {
-      res.status(429).json({
-        success: false,
-        error: {
-          code: "RATE_LIMIT_EXCEEDED",
-          message: "Too many requests. Please try again later.",
-        },
-      });
+    // If Redis is unavailable, allow the request through (fail-open)
+    if (!redisAvailable) {
+      next();
       return;
     }
 
-    next();
+    try {
+      const now = Date.now();
+      const windowStart = now - windowMs;
+
+      // Use a sorted set: score = timestamp, member = unique request id
+      const multi = client.multi();
+      // Remove expired entries
+      multi.zremrangebyscore(redisKey, 0, windowStart);
+      // Add current request
+      multi.zadd(redisKey, now, `${now}:${Math.random()}`);
+      // Count requests in window
+      multi.zcard(redisKey);
+      // Set TTL so the key auto-expires
+      multi.expire(redisKey, windowSeconds + 1);
+
+      const results = await multi.exec();
+      if (!results) {
+        next();
+        return;
+      }
+
+      const count = results[2][1] as number;
+
+      // Set rate limit headers
+      res.setHeader("X-RateLimit-Limit", max);
+      res.setHeader("X-RateLimit-Remaining", Math.max(0, max - count));
+      res.setHeader(
+        "X-RateLimit-Reset",
+        Math.ceil((now + windowMs) / 1000)
+      );
+
+      if (count > max) {
+        res.status(429).json({
+          success: false,
+          error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Too many requests. Please try again later.",
+          },
+        });
+        return;
+      }
+
+      next();
+    } catch {
+      // If Redis fails mid-request, allow through
+      next();
+    }
   };
 }

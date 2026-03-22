@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/auth.middleware";
+import { requireAccountant } from "../middleware/rbac.middleware";
 import { asyncHandler } from "../middleware/error.middleware";
 import * as reportController from "../controllers/report.controller";
 
 const router = Router();
 router.use(authenticate);
+router.use(requireAccountant);
 
 router.get("/dashboard",     asyncHandler(reportController.getDashboardStats));
 router.get("/revenue",       asyncHandler(reportController.getRevenueReport));

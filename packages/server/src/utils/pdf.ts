@@ -138,12 +138,15 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
   });
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
+    // Block all outbound network requests from the rendered page
+    await page.setRequestInterception(true);
+    page.on("request", (req) => req.abort());
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
@@ -177,12 +180,15 @@ export async function generateQuotePdf(data: QuotePdfData): Promise<Buffer> {
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
   });
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
+    // Block all outbound network requests from the rendered page
+    await page.setRequestInterception(true);
+    page.on("request", (req) => req.abort());
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
@@ -215,12 +221,15 @@ export async function generateCreditNotePdf(data: CreditNotePdfData): Promise<Bu
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
   });
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
+    // Block all outbound network requests from the rendered page
+    await page.setRequestInterception(true);
+    page.on("request", (req) => req.abort());
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
@@ -251,12 +260,15 @@ export async function generateReceiptPdf(data: ReceiptPdfData): Promise<Buffer> 
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
   });
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
+    // Block all outbound network requests from the rendered page
+    await page.setRequestInterception(true);
+    page.on("request", (req) => req.abort());
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,

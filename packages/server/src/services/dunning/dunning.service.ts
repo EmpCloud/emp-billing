@@ -155,11 +155,12 @@ export async function listDunningAttempts(orgId: string, params: ListDunningPara
 
 // ── Process Dunning Attempt ─────────────────────────────────────────────────
 
-export async function processDunningAttempt(attemptId: string): Promise<void> {
+export async function processDunningAttempt(attemptId: string, orgId?: string): Promise<void> {
   const db = await getDB();
 
-  const attempt = await db.findById<DunningAttempt>("dunning_attempts", attemptId);
+  const attempt = await db.findById<DunningAttempt>("dunning_attempts", attemptId, orgId);
   if (!attempt) throw NotFoundError("Dunning attempt");
+  if (orgId && attempt.orgId !== orgId) throw NotFoundError("Dunning attempt");
 
   const config = await getDunningConfig(attempt.orgId);
   const now = new Date();

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../middleware/error.middleware";
 import { validateBody } from "../middleware/validate.middleware";
 import { authenticate } from "../middleware/auth.middleware";
+import { rateLimit } from "../middleware/rate-limit.middleware";
 import * as authController from "../controllers/auth.controller";
 import {
   RegisterSchema,
@@ -13,11 +14,14 @@ import {
 
 const router = Router();
 
-router.post("/register",       validateBody(RegisterSchema),       asyncHandler(authController.register));
-router.post("/login",          validateBody(LoginSchema),          asyncHandler(authController.login));
-router.post("/refresh",                                             asyncHandler(authController.refresh));
-router.post("/logout",                                              asyncHandler(authController.logout));
-router.post("/forgot-password", validateBody(ForgotPasswordSchema), asyncHandler(authController.forgotPassword));
+// Stricter rate limit for auth-sensitive endpoints: 10 requests per 15 minutes
+const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
+
+router.post("/register",       authRateLimit, validateBody(RegisterSchema),       asyncHandler(authController.register));
+router.post("/login",          authRateLimit, validateBody(LoginSchema),          asyncHandler(authController.login));
+router.post("/refresh",                                                            asyncHandler(authController.refresh));
+router.post("/logout",                                                             asyncHandler(authController.logout));
+router.post("/forgot-password", authRateLimit, validateBody(ForgotPasswordSchema), asyncHandler(authController.forgotPassword));
 router.post("/reset-password",  validateBody(ResetPasswordSchema),  asyncHandler(authController.resetPassword));
 
 // Authenticated routes

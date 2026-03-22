@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/auth.middleware";
+import { requireAdmin, requireAccountant } from "../middleware/rbac.middleware";
 import { asyncHandler } from "../middleware/error.middleware";
 import type { Request, Response } from "express";
 import * as dunningService from "../../services/dunning/dunning.service";
@@ -19,6 +20,7 @@ router.get(
 // PUT /config — update dunning config
 router.put(
   "/config",
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const config = await dunningService.updateDunningConfig(req.user!.orgId, req.body);
     res.json({ success: true, data: config });
@@ -30,9 +32,11 @@ router.get(
   "/attempts",
   asyncHandler(async (req: Request, res: Response) => {
     const q = req.query as Record<string, string>;
+    const page = Math.max(1, q.page ? parseInt(q.page, 10) || 1 : 1);
+    const limit = Math.min(100, Math.max(1, q.limit ? parseInt(q.limit, 10) || 20 : 20));
     const result = await dunningService.listDunningAttempts(req.user!.orgId, {
-      page: q.page ? parseInt(q.page as string, 10) : 1,
-      limit: q.limit ? parseInt(q.limit as string, 10) : 20,
+      page,
+      limit,
       status: q.status as any,
       invoiceId: q.invoiceId as string,
     });
@@ -52,9 +56,10 @@ router.get(
 // POST /attempts/:id/retry — manual retry
 router.post(
   "/attempts/:id/retry",
+  requireAccountant,
   asyncHandler(async (req: Request, res: Response) => {
     const attemptId = req.params.id as string;
-    await dunningService.processDunningAttempt(attemptId);
+    await dunningService.processDunningAttempt(attemptId, req.user!.orgId);
     res.json({ success: true, data: { message: "Retry processed" } });
   }),
 );

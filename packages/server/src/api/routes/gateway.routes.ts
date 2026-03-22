@@ -21,16 +21,16 @@ router.post(
   })
 );
 
-// Razorpay webhook
+// Razorpay webhook -- needs raw body for signature verification (like Stripe)
 router.post(
   "/razorpay",
+  express.raw({ type: "application/json" }),
   asyncHandler(async (req: Request, res: Response) => {
-    const rawBody = Buffer.from(JSON.stringify(req.body));
     const result = await onlinePaymentService.handleGatewayWebhook(
       "razorpay",
       req.headers as Record<string, string>,
       req.body,
-      rawBody
+      req.body // raw buffer when express.raw is used
     );
     res.json(result);
   })

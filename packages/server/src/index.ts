@@ -12,6 +12,7 @@ import { logger } from "./utils/logger";
 import { getDB, closeDB } from "./db/adapters/index";
 import { errorMiddleware } from "./api/middleware/error.middleware";
 import { rateLimit } from "./api/middleware/rate-limit.middleware";
+import { authenticate } from "./api/middleware/auth.middleware";
 
 import { uploadRoutes } from "./api/routes/upload.routes";
 import { gatewayRoutes } from "./api/routes/gateway.routes";
@@ -47,6 +48,9 @@ import { setupSwagger } from "./api/docs/swagger";
 
 const app = express();
 
+// Trust first proxy (e.g. nginx, ALB) so rate limiting sees real client IPs
+app.set("trust proxy", 1);
+
 // ── Global middleware ─────────────────────────────────────────────────────────
 app.use(
   helmet({
@@ -67,14 +71,16 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "emp-billing", version: "0.1.0", env: config.env });
 });
 
-// ── Static file serving for uploads ──────────────────────────────────────────
-app.use("/uploads", express.static(config.upload.uploadDir));
+// ── Static file serving for uploads (auth-protected) ────────────────────────
+app.use("/uploads", authenticate, express.static(config.upload.uploadDir));
 
-// ── API Documentation (Swagger UI) ──────────────────────────────────────────
-setupSwagger(app);
+// ── API Documentation (Swagger UI) — disabled in production ─────────────────
+if (config.env !== "production") {
+  setupSwagger(app);
+}
 
-// ── Gateway webhooks — raw body needed, no auth ─────────────────────────────
-app.use("/webhooks/gateway", gatewayRoutes);
+// ── Gateway webhooks — raw body needed, no auth, but still rate-limited ─────
+app.use("/webhooks/gateway", rateLimit({ windowMs: 60 * 1000, max: 200 }), gatewayRoutes);
 
 // ── API v1 ────────────────────────────────────────────────────────────────────
 const v1 = express.Router();

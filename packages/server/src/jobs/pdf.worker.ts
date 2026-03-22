@@ -78,6 +78,14 @@ const pdfWorker = new Worker<PdfJobData, string>(
       }
 
       const filePath = path.join(PDF_DIR, data.filename || `${data.type}-${job.id}.pdf`);
+
+      // Path traversal protection: ensure the resolved path stays within PDF_DIR
+      const resolvedPath = path.resolve(filePath);
+      const resolvedDir = path.resolve(PDF_DIR);
+      if (!resolvedPath.startsWith(resolvedDir + path.sep) && resolvedPath !== resolvedDir) {
+        throw new Error(`Path traversal detected: ${data.filename}`);
+      }
+
       await fs.writeFile(filePath, buffer);
 
       return filePath;

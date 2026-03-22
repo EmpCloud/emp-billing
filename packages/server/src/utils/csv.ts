@@ -63,9 +63,19 @@ function parseLine(line: string): string[] {
   return result;
 }
 
+/** Characters that can trigger formula execution in spreadsheet applications */
+const FORMULA_TRIGGERS = ["=", "+", "-", "@", "\t", "\r"];
+
 function escapeField(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
+  // CSV injection protection: prefix formula-triggering characters with a
+  // single quote so spreadsheet apps treat the cell as plain text.
+  let escaped = value;
+  if (escaped.length > 0 && FORMULA_TRIGGERS.includes(escaped[0])) {
+    escaped = "'" + escaped;
   }
-  return value;
+
+  if (escaped.includes(",") || escaped.includes('"') || escaped.includes("\n")) {
+    return `"${escaped.replace(/"/g, '""')}"`;
+  }
+  return escaped;
 }

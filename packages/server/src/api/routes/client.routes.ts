@@ -3,7 +3,7 @@ import { authenticate } from "../middleware/auth.middleware";
 import { requireSales, requireAccountant } from "../middleware/rbac.middleware";
 import { asyncHandler } from "../middleware/error.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { CreateClientSchema, UpdateClientSchema } from "@emp-billing/shared";
+import { CreateClientSchema, UpdateClientSchema, ClientContactSchema } from "@emp-billing/shared";
 import * as clientController from "../controllers/client.controller";
 import * as importExportController from "../controllers/import-export.controller";
 
@@ -23,7 +23,7 @@ router.delete("/:id",      requireSales, asyncHandler(clientController.deleteCli
 
 // Contacts
 router.get("/:id/contacts",  asyncHandler(clientController.listContacts));
-router.post("/:id/contacts", requireSales, asyncHandler(clientController.addContact));
+router.post("/:id/contacts", requireSales, validateBody(ClientContactSchema), asyncHandler(clientController.addContact));
 
 // Statement & balance
 router.get("/:id/statement", asyncHandler(clientController.getClientStatement));

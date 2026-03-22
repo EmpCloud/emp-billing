@@ -18,10 +18,14 @@ export const config = {
   // CORS
   corsOrigin: optional("CORS_ORIGIN", "http://localhost:5174"),
 
-  // JWT
+  // JWT — require real secrets in production; allow dev fallbacks otherwise
   jwt: {
-    accessSecret: optional("JWT_ACCESS_SECRET", "emp-billing-access-secret-change-in-prod"),
-    refreshSecret: optional("JWT_REFRESH_SECRET", "emp-billing-refresh-secret-change-in-prod"),
+    accessSecret: process.env.NODE_ENV === "production"
+      ? required("JWT_ACCESS_SECRET")
+      : optional("JWT_ACCESS_SECRET", "emp-billing-access-secret-change-in-prod"),
+    refreshSecret: process.env.NODE_ENV === "production"
+      ? required("JWT_REFRESH_SECRET")
+      : optional("JWT_REFRESH_SECRET", "emp-billing-refresh-secret-change-in-prod"),
     accessExpiresIn: optional("JWT_ACCESS_EXPIRES_IN", "15m"),
     refreshExpiresIn: optional("JWT_REFRESH_EXPIRES_IN", "7d"),
   },

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/auth.middleware";
+import { requireAccountant } from "../middleware/rbac.middleware";
 import { asyncHandler } from "../middleware/error.middleware";
 import { validateBody } from "../middleware/validate.middleware";
 import { UpdateDisputeSchema } from "@emp-billing/shared";
@@ -11,6 +12,6 @@ router.use(authenticate);
 // Admin dispute routes
 router.get("/",        asyncHandler(disputeController.listDisputes));
 router.get("/:id",     asyncHandler(disputeController.getDispute));
-router.put("/:id",     validateBody(UpdateDisputeSchema), asyncHandler(disputeController.updateDispute));
+router.put("/:id",     requireAccountant, validateBody(UpdateDisputeSchema), asyncHandler(disputeController.updateDispute));
 
 export { router as disputeRoutes };

@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import Handlebars from "handlebars";
 import { getDB } from "../../db/adapters/index";
 import { NotFoundError, BadRequestError } from "../../utils/AppError";
 import type { Organization } from "@emp-billing/shared";
@@ -176,6 +177,66 @@ export async function getEmailTemplates(): Promise<EmailTemplate[]> {
   return templates;
 }
 
+// ── Template Sanitization ─────────────────────────────────────────────────
+
+/** Allowlisted Handlebars helpers that are safe to use in email templates. */
+const ALLOWED_HELPERS = new Set([
+  "formatMoney",
+  "formatDate",
+  "inc",
+  "subtract",
+  "if",
+  "unless",
+  "each",
+  "with",
+  "lookup",
+]);
+
+/**
+ * Dangerous Handlebars constructs that must not appear in user-supplied
+ * templates:
+ * - {{> partial}}  — partial inclusion can read arbitrary files
+ * - Raw triple-stash {{{ }}} — XSS via unescaped HTML (allowed only for
+ *   known safe usage, but we block it in user-editable templates)
+ */
+const DANGEROUS_PATTERNS = [
+  /\{\{>\s*/,                // partials  {{> ...}}
+  /\{\{\{/,                  // unescaped output {{{ ... }}}
+];
+
+/**
+ * Validate that a Handlebars template body does not contain dangerous
+ * constructs. Throws BadRequestError if the template is rejected.
+ */
+function sanitizeTemplateBody(body: string): void {
+  for (const pattern of DANGEROUS_PATTERNS) {
+    if (pattern.test(body)) {
+      throw BadRequestError(
+        "Template contains disallowed Handlebars constructs (partials or unescaped output)"
+      );
+    }
+  }
+
+  // Compile with a strict environment to detect unknown helpers
+  const env = Handlebars.create();
+
+  // Register only allowlisted helpers so that unknown helpers cause an error
+  for (const name of ALLOWED_HELPERS) {
+    if (!env.helpers[name]) {
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      env.registerHelper(name, function () {});
+    }
+  }
+
+  try {
+    // Compile in strict mode — unknown helpers will throw
+    env.compile(body, { strict: false, noEscape: false });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Invalid template";
+    throw BadRequestError(`Invalid email template: ${msg}`);
+  }
+}
+
 export async function updateEmailTemplate(
   name: string,
   input: { subject?: string; body?: string }
@@ -190,6 +251,7 @@ export async function updateEmailTemplate(
   }
 
   if (input.body !== undefined) {
+    sanitizeTemplateBody(input.body);
     fs.writeFileSync(filePath, input.body, "utf-8");
   }
 

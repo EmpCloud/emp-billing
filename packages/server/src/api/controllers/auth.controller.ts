@@ -84,7 +84,7 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
 
   // In production, send email here. For now, expose token in dev mode only.
   const responseData =
-    process.env.NODE_ENV !== "production" && token ? { resetToken: token } : undefined;
+    process.env.NODE_ENV === "development" && token ? { resetToken: token } : undefined;
 
   const body: ApiResponse<typeof responseData> = {
     success: true,

@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/auth.middleware";
+import { requireAccountant } from "../middleware/rbac.middleware";
 import { asyncHandler } from "../middleware/error.middleware";
 import type { Request, Response } from "express";
 import * as metricsService from "../../services/metrics/metrics.service";
 
 const router = Router();
 router.use(authenticate);
+router.use(requireAccountant);
 
 // GET /mrr — Monthly Recurring Revenue
 router.get(
@@ -51,7 +53,7 @@ router.get(
   "/revenue-breakdown",
   asyncHandler(async (req: Request, res: Response) => {
     const q = req.query as Record<string, string>;
-    const months = q.months ? parseInt(q.months as string, 10) : 12;
+    const months = Math.min(36, Math.max(1, q.months ? parseInt(q.months, 10) || 12 : 12));
     const data = await metricsService.getRevenueBreakdown(req.user!.orgId, months);
     res.json({ success: true, data });
   }),
@@ -71,7 +73,7 @@ router.get(
   "/cohort",
   asyncHandler(async (req: Request, res: Response) => {
     const q = req.query as Record<string, string>;
-    const months = q.months ? parseInt(q.months as string, 10) : 12;
+    const months = Math.min(36, Math.max(1, q.months ? parseInt(q.months, 10) || 12 : 12));
     const data = await metricsService.getCohortAnalysis(req.user!.orgId, months);
     res.json({ success: true, data });
   }),

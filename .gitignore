@@ -6,3 +6,5 @@ node_modules/
 logs/
 .DS_Store
 coverage/
+dist/
+packages/*/dist/

@@ -456,6 +456,66 @@ export const UpdateSettingsSchema = z.object({
   logo: z.string().optional(),
 });
 
+export const UpdateBrandingSchema = z.object({
+  logo: z.string().min(1, "Logo URL is required"),
+  brandColors: z.object({
+    primary: z.string().min(1, "Primary color is required"),
+  }),
+});
+
+export const UpdateNumberingSchema = z.object({
+  invoicePrefix: z.string().min(1).max(20).optional(),
+  quotePrefix: z.string().min(1).max(20).optional(),
+  creditNotePrefix: z.string().min(1).max(20).optional(),
+  nextInvoiceNumber: z.number().int().positive().optional(),
+  nextQuoteNumber: z.number().int().positive().optional(),
+  nextCreditNoteNumber: z.number().int().positive().optional(),
+  format: z.string().max(50).optional(),
+});
+
+export const UpdateEmailTemplateSchema = z.object({
+  name: z.string().min(1, "Template name is required"),
+  body: z.string().min(1, "Template body is required"),
+  subject: z.string().optional(),
+});
+
+// ============================================================================
+// PORTAL
+// ============================================================================
+
+export const PortalLoginSchema = z.object({
+  email: z.string().email("Valid email required"),
+  token: z.string().min(1, "Token is required"),
+});
+
+export const PortalPaySchema = z.object({
+  invoiceId: z.string().uuid("Valid invoice ID required"),
+  gateway: z.string().min(1, "Payment gateway is required"),
+});
+
+export const PortalVerifyPaymentSchema = z.object({
+  invoiceId: z.string().uuid("Valid invoice ID required"),
+  gateway: z.string().min(1, "Payment gateway is required"),
+  paymentId: z.string().min(1, "Payment ID is required"),
+  orderId: z.string().min(1, "Order ID is required"),
+  signature: z.string().optional(),
+});
+
+export const PortalChangePlanSchema = z.object({
+  newPlanId: z.string().uuid("Valid plan ID required"),
+});
+
+export const PortalCancelSubscriptionSchema = z.object({
+  reason: z.string().optional(),
+});
+
+export const PortalUpdatePaymentMethodSchema = z.object({
+  gateway: z.string().min(1, "Payment gateway is required"),
+  token: z.string().min(1, "Payment token is required"),
+  last4: z.string().max(4).optional(),
+  brand: z.string().optional(),
+});
+
 // ============================================================================
 // TEAM / USERS
 // ============================================================================

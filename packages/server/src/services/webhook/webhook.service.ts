@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 import crypto from "crypto";
 import { getDB } from "../../db/adapters/index";
-import { NotFoundError } from "../../utils/AppError";
+import { NotFoundError, BadRequestError } from "../../utils/AppError";
 import type { Webhook, WebhookEvent } from "@emp-billing/shared";
 import type { z } from "zod";
 import type { CreateWebhookSchema, UpdateWebhookSchema } from "@emp-billing/shared";
@@ -10,14 +10,88 @@ import type { CreateWebhookSchema, UpdateWebhookSchema } from "@emp-billing/shar
 // WEBHOOK SERVICE
 // ============================================================================
 
+// ── SSRF Protection ─────────────────────────────────────────────────────────
+
+/**
+ * Validate that a webhook URL does not point to internal/private networks.
+ * Blocks: localhost, 127.x, ::1, 10.x, 172.16-31.x, 192.168.x, 169.254.x,
+ * AWS metadata (169.254.169.254), and non-http(s) schemes.
+ */
+function isInternalUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return true; // malformed URLs are blocked
+  }
+
+  // Only allow http and https schemes
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return true;
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  // Block localhost variants
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    hostname === "0.0.0.0"
+  ) {
+    return true;
+  }
+
+  // Block .local and .internal TLDs
+  if (hostname.endsWith(".local") || hostname.endsWith(".internal")) {
+    return true;
+  }
+
+  // Check for IPv4 private/reserved ranges
+  const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const [, a, b] = ipv4Match.map(Number);
+
+    // 127.0.0.0/8 — loopback
+    if (a === 127) return true;
+    // 10.0.0.0/8 — private
+    if (a === 10) return true;
+    // 172.16.0.0/12 — private
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    // 192.168.0.0/16 — private
+    if (a === 192 && b === 168) return true;
+    // 169.254.0.0/16 — link-local (includes AWS metadata 169.254.169.254)
+    if (a === 169 && b === 254) return true;
+    // 0.0.0.0/8
+    if (a === 0) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Validate a webhook URL is safe to call. Throws if the URL targets an
+ * internal or private network address.
+ */
+function assertExternalUrl(url: string): void {
+  if (isInternalUrl(url)) {
+    throw BadRequestError(
+      "Webhook URL must not point to internal or private network addresses"
+    );
+  }
+}
+
 // ── List ─────────────────────────────────────────────────────────────────────
 
-export async function listWebhooks(orgId: string): Promise<Webhook[]> {
+export async function listWebhooks(orgId: string): Promise<Omit<Webhook, "secret">[]> {
   const db = await getDB();
-  return db.findMany<Webhook>("webhooks", {
+  const webhooks = await db.findMany<Webhook>("webhooks", {
     where: { org_id: orgId },
     orderBy: [{ column: "created_at", direction: "desc" }],
   });
+  // Strip secret from list responses — only expose on create
+  return webhooks.map(({ secret: _secret, ...rest }) => rest);
 }
 
 // ── Create ────────────────────────────────────────────────────────────────────
@@ -26,6 +100,7 @@ export async function createWebhook(
   orgId: string,
   input: z.infer<typeof CreateWebhookSchema>
 ): Promise<Webhook> {
+  assertExternalUrl(input.url);
   const db = await getDB();
 
   const id = uuid();
@@ -60,6 +135,8 @@ export async function updateWebhook(
   const existing = await db.findById<Webhook>("webhooks", id, orgId);
   if (!existing) throw NotFoundError("Webhook");
 
+  if (input.url !== undefined) assertExternalUrl(input.url);
+
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (input.url !== undefined) updateData.url = input.url;
   if (input.events !== undefined) updateData.events = JSON.stringify(input.events);
@@ -87,6 +164,8 @@ export async function testWebhook(orgId: string, id: string): Promise<{ success:
   const db = await getDB();
   const webhook = await db.findById<Webhook>("webhooks", id, orgId);
   if (!webhook) throw NotFoundError("Webhook");
+
+  assertExternalUrl(webhook.url);
 
   const timestamp = new Date().toISOString();
   const testPayload = {
@@ -176,6 +255,8 @@ export async function retryDelivery(
 
   const webhook = await db.findById<Webhook>("webhooks", webhookId, orgId);
   if (!webhook) throw NotFoundError("Webhook");
+
+  assertExternalUrl(webhook.url);
 
   // Find the original delivery
   const deliveries = await db.findMany<{
@@ -279,6 +360,10 @@ export async function dispatchEvent(
   const timestamp = new Date().toISOString();
 
   for (const webhook of subscribers) {
+    // Skip webhooks targeting internal URLs (may have been created before
+    // the SSRF check was added)
+    if (isInternalUrl(webhook.url)) continue;
+
     const eventPayload = {
       event,
       timestamp,

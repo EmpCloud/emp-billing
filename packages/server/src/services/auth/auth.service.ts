@@ -249,6 +249,9 @@ export async function resetPassword(input: z.infer<typeof ResetPasswordSchema>):
     resetTokenExpires: null,
     updatedAt: new Date(),
   });
+
+  // Revoke all existing refresh tokens so stolen sessions can't persist
+  await db.updateMany("refresh_tokens", { userId: user.id }, { isRevoked: true, updatedAt: new Date() });
 }
 
 export async function changePassword(
@@ -265,6 +268,9 @@ export async function changePassword(
 
   const passwordHash = await bcrypt.hash(input.newPassword, config.bcryptRounds);
   await db.update("users", userId, { passwordHash, updatedAt: new Date() });
+
+  // Revoke all existing refresh tokens so stolen sessions can't persist
+  await db.updateMany("refresh_tokens", { userId }, { isRevoked: true, updatedAt: new Date() });
 }
 
 // ── internal ─────────────────────────────────────────────────────────────────
