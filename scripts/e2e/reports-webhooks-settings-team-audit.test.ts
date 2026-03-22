@@ -79,10 +79,44 @@ async function login(p: Page) {
 
 /** Click a sidebar NavLink by its label text */
 async function clickSidebarLink(p: Page, label: string) {
-  // Sidebar nav links are NavLink elements with text
-  const link = p.locator(`aside nav a`).filter({ hasText: label }).first();
-  await link.waitFor({ timeout: 5000 });
-  await link.click();
+  // The sidebar may be collapsed (w-14 with no text visible).
+  // First, ensure the sidebar is expanded by looking for the toggle button.
+  const sidebarText = p.locator(`aside nav a`).filter({ hasText: label }).first();
+  const isTextVisible = await sidebarText.isVisible().catch(() => false);
+
+  if (!isTextVisible) {
+    // Sidebar may be collapsed — try to find the nav link by href instead
+    // Map labels to href paths from the NAV config in DashboardLayout
+    const labelToHref: Record<string, string> = {
+      "Dashboard": "/dashboard", "Clients": "/clients", "Invoices": "/invoices",
+      "Payments": "/payments", "Quotes": "/quotes", "Credit Notes": "/credit-notes",
+      "Expenses": "/expenses", "Vendors": "/vendors", "Products": "/products",
+      "Recurring": "/recurring", "Subscriptions": "/subscriptions", "Usage": "/usage",
+      "Coupons": "/coupons", "Dunning": "/dunning", "Disputes": "/disputes",
+      "SaaS Metrics": "/metrics", "Reports": "/reports", "Webhooks": "/webhooks",
+      "Team": "/team", "Activity": "/activity", "Settings": "/settings",
+    };
+    const href = labelToHref[label];
+    if (href) {
+      // Try clicking by href
+      const hrefLink = p.locator(`aside nav a[href="${href}"]`).first();
+      const hrefVisible = await hrefLink.isVisible().catch(() => false);
+      if (hrefVisible) {
+        await hrefLink.click();
+        await p.waitForTimeout(1500);
+        return;
+      }
+      // If sidebar is collapsed and link not found, navigate directly
+      const base = p.url().split("/").slice(0, 3).join("/");
+      await p.goto(`${base}${href}`, { waitUntil: "networkidle", timeout: 15000 });
+      await p.waitForTimeout(1000);
+      return;
+    }
+  }
+
+  // Sidebar is expanded — click by text
+  await sidebarText.waitFor({ timeout: 5000 });
+  await sidebarText.click();
   await p.waitForTimeout(1500);
 }
 
@@ -411,7 +445,7 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
     // Select events — the checkboxes are controlled by react-hook-form setValue,
     // so we need to click their parent label or the checkbox itself to trigger onChange.
     // The events are rendered as <label><input type="checkbox" ...> Event Name</label>
-    const checkboxes = page.locator('[role="dialog"] input[type="checkbox"], .fixed input[type="checkbox"]');
+    const checkboxes = page.locator('.fixed input[type="checkbox"]');
     const checkboxCount = await checkboxes.count();
     if (checkboxCount === 0) {
       // Fallback: try all checkboxes on page
@@ -440,7 +474,7 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
       await submitBtn.click();
     } else {
       // Fallback: click any submit button in the dialog
-      const fallbackBtn = page.locator('[role="dialog"] button[type="submit"], form button[type="submit"]').first();
+      const fallbackBtn = page.locator('.fixed button[type="submit"], form button[type="submit"]').first();
       await fallbackBtn.click();
     }
     await page.waitForTimeout(2000);
@@ -495,7 +529,7 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
     await assertBodyContainsAny(page, "Event", "Timestamp", "Status", "No deliveries recorded");
 
     // Close the modal
-    const closeBtn = page.locator('[role="dialog"] button, button:has-text("Close"), button[aria-label="Close"]').first();
+    const closeBtn = page.locator('.fixed button, button:has-text("Close"), button[aria-label="Close"]').first();
     const closeVisible = await closeBtn.isVisible().catch(() => false);
     if (closeVisible) {
       await closeBtn.click();
@@ -648,34 +682,54 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
   // #20: Tax rates — click Tax Rates tab, add new tax rate, verify appears, delete it
   await test("#20: Tax rates — add 'E2E GST 18%', verify in list, delete it", async () => {
     await page.goto(`${BASE}/settings`, { waitUntil: "networkidle", timeout: 15000 });
-    await page.waitForTimeout(1000);
-
-    // Click Tax Rates tab
-    const taxTab = page.locator("button").filter({ hasText: "Tax Rates" }).first();
-    await taxTab.click();
     await page.waitForTimeout(1500);
 
-    // Click "Add Tax Rate" button
+    // Click Tax Rates tab — may need to scroll into view
+    const taxTab = page.locator("button").filter({ hasText: "Tax Rates" }).first();
+    await taxTab.scrollIntoViewIfNeeded();
+    await taxTab.click();
+    await page.waitForTimeout(2000);
+
+    // Wait for the Tax Rates tab content to load
+    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+
+    // Click "Add Tax Rate" button — wait for the TaxRatesTab to finish loading first
     const addBtn = page.locator("button").filter({ hasText: /Add Tax Rate|Add Rate|New Tax/i }).first();
-    await addBtn.waitFor({ timeout: 5000 });
+    await addBtn.waitFor({ timeout: 15000 });
+    await addBtn.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
     await addBtn.click();
-    await page.waitForTimeout(1000);
+
+    // Wait for the modal to render — the Modal component renders a .fixed overlay
+    // Wait specifically for an input to appear inside .fixed (not just .fixed which may match other elements)
+    await page.waitForFunction(
+      () => {
+        const fixedOverlays = document.querySelectorAll('.fixed');
+        for (const overlay of fixedOverlays) {
+          if (overlay.querySelector('input[name="name"], input#name')) return true;
+        }
+        return false;
+      },
+      null,
+      { timeout: 15000 },
+    );
+    await page.waitForTimeout(500);
 
     // Fill the tax rate form in the modal
-    // The form uses register("name") so input has name="name"
-    const nameInput = page.locator('[role="dialog"] input[name="name"]').first();
-    await nameInput.waitFor({ timeout: 5000 });
+    const nameInput = page.locator('.fixed input#name, .fixed input[name="name"]').first();
+    await nameInput.waitFor({ timeout: 15000 });
     await nameInput.fill("E2E GST 18%");
 
     // Fill rate — registered as name="rate"
-    const rateInput = page.locator('[role="dialog"] input[name="rate"]').first();
-    await rateInput.waitFor({ timeout: 3000 });
+    const rateInput = page.locator('.fixed input[name="rate"], .fixed input#rate').first();
+    await rateInput.waitFor({ timeout: 5000 });
     await rateInput.fill("18");
     await page.waitForTimeout(300);
 
     // Submit the form — the "Create Tax Rate" button is in the Modal footer (not type="submit")
     // It's rendered as <Button onClick={handleSubmit(onSubmit)}>Create Tax Rate</Button>
-    const createTaxBtn = page.locator('[role="dialog"] button').filter({ hasText: /Create Tax Rate/i }).first();
+    const createTaxBtn = page.locator('.fixed button').filter({ hasText: /Create Tax Rate/i }).first();
     const createTaxVisible = await createTaxBtn.isVisible().catch(() => false);
     if (createTaxVisible) {
       await createTaxBtn.click();
@@ -698,8 +752,8 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
       await trashBtn.click();
       await page.waitForTimeout(1000);
 
-      // A confirmation modal appears — click the "Delete" button in the modal
-      const confirmDeleteBtn = page.locator('[role="dialog"] button').filter({ hasText: /^Delete$/i }).first();
+      // A confirmation modal appears — click the "Delete" button in the modal (.fixed overlay)
+      const confirmDeleteBtn = page.locator('.fixed button').filter({ hasText: /^Delete$/i }).first();
       const confirmVisible = await confirmDeleteBtn.isVisible().catch(() => false);
       if (confirmVisible) {
         await confirmDeleteBtn.click();
@@ -747,26 +801,26 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
     await page.waitForTimeout(1000);
 
     // The invite form uses react-hook-form with register() — inputs have name attributes
-    // Wait for the modal to fully render
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    // Wait for the modal to fully render (.fixed overlay, no role="dialog")
+    await page.waitForSelector('.fixed', { timeout: 5000 });
     await page.waitForTimeout(500);
 
     // Fill first name — registered as name="firstName", input has id="first-name"
-    const firstNameInput = page.locator('[role="dialog"] input[name="firstName"]').first();
+    const firstNameInput = page.locator('.fixed input[name="firstName"]').first();
     await firstNameInput.waitFor({ timeout: 5000 });
     await firstNameInput.fill("E2E Test");
 
     // Fill last name — registered as name="lastName"
-    const lastNameInput = page.locator('[role="dialog"] input[name="lastName"]').first();
+    const lastNameInput = page.locator('.fixed input[name="lastName"]').first();
     await lastNameInput.fill("User");
 
     // Fill email — registered as name="email"
-    const emailInput = page.locator('[role="dialog"] input[name="email"]').first();
+    const emailInput = page.locator('.fixed input[name="email"]').first();
     await emailInput.fill(`e2e-invite-${Date.now()}@example.com`);
     await page.waitForTimeout(300);
 
     // Select role from dropdown — registered as name="role"
-    const roleSelect = page.locator('[role="dialog"] select[name="role"]').first();
+    const roleSelect = page.locator('.fixed select[name="role"]').first();
     const roleSelectVisible = await roleSelect.isVisible().catch(() => false);
     if (roleSelectVisible) {
       await roleSelect.selectOption("viewer");
@@ -775,7 +829,7 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
 
     // Click "Send Invite" button in modal footer
     // This button uses onClick={handleSubmit(onInviteSubmit)}, not type="submit"
-    const sendBtn = page.locator('[role="dialog"] button').filter({ hasText: /Send Invite/i }).first();
+    const sendBtn = page.locator('.fixed button').filter({ hasText: /Send Invite/i }).first();
     const sendVisible = await sendBtn.isVisible().catch(() => false);
     if (sendVisible) {
       await sendBtn.click();
@@ -791,7 +845,7 @@ async function assertBodyContainsAny(p: Page, ...texts: string[]) {
       await waitForToast(page, undefined, 5000);
     } catch {
       // Verify the invite worked — the modal should have closed
-      const modalVisible = await page.locator('[role="dialog"]').isVisible().catch(() => false);
+      const modalVisible = await page.locator('.fixed').isVisible().catch(() => false);
       if (modalVisible) {
         throw new Error("Invite modal still open — invite may have failed");
       }

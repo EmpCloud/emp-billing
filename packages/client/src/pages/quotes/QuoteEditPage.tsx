@@ -199,7 +199,7 @@ export function QuoteEditPage() {
             quantity: Number(item.quantity) || 1,
             rate: (Number(item.rate) || 0) / 100, // paise -> display
             taxRateId: (item.taxRateId as string) ?? "",
-            discountType: item.discountType as DiscountType | undefined,
+            discountType: (item.discountType as DiscountType) || undefined,
             discountValue: Number(item.discountValue) || 0,
             sortOrder: Number(item.sortOrder) ?? i,
           }))

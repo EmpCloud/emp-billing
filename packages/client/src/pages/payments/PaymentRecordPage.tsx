@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import dayjs from "dayjs";
-import { CreatePaymentSchema, PaymentMethod } from "@emp-billing/shared";
+import { PaymentMethod } from "@emp-billing/shared";
 import { useRecordPayment } from "@/api/hooks/payment.hooks";
 import { useClients } from "@/api/hooks/client.hooks";
 import { useInvoices } from "@/api/hooks/invoice.hooks";
@@ -79,10 +79,6 @@ export function PaymentRecordPage() {
       amount: Math.round(values.amount * 100),
       invoiceId: values.invoiceId || undefined,
     };
-
-    // Validate with the actual schema before sending
-    const parsed = CreatePaymentSchema.safeParse(payload);
-    if (!parsed.success) return;
 
     recordPayment.mutate(payload as unknown as Record<string, unknown>, {
       onSuccess: () => navigate("/payments"),

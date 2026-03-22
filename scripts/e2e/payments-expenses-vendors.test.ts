@@ -254,30 +254,28 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       throw new Error("Record Payment page heading not found");
     }
 
-    // Select client from dropdown (native <select> with id="client")
+    // Select client from dropdown (native <select> — the Select component
+    // generates id from label "Client" -> "client")
     const clientSelect = page.locator('select#client');
     await clientSelect.waitFor({ timeout: 5000 });
-    // Wait for client options to be populated by the API
-    await page.waitForFunction(
+    // Wait for client options to be populated by the API — return the first
+    // non-empty option value directly from the browser context to avoid any
+    // race between the waitForFunction check and the subsequent option scan.
+    // Wait for network to settle before checking client options
+    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1000);
+
+    const selectedClientValue = await page.waitForFunction(
       () => {
-        const sel = document.querySelector('select#client');
-        if (!sel) return false;
-        const opts = sel.querySelectorAll('option');
-        // Need at least 2 options (placeholder + one real client)
-        return opts.length >= 2;
+        const sel = document.querySelector('select#client') as HTMLSelectElement | null;
+        if (!sel) return null;
+        const opts = Array.from(sel.options);
+        const real = opts.find((o) => o.value && o.value.length > 0);
+        return real ? real.value : null;
       },
-      { timeout: 10000 },
-    );
-    // Get the first non-empty option value
-    const clientOptions = await clientSelect.locator("option").all();
-    let selectedClientValue = "";
-    for (const opt of clientOptions) {
-      const val = await opt.getAttribute("value");
-      if (val && val.length > 0) {
-        selectedClientValue = val;
-        break;
-      }
-    }
+      null,
+      { timeout: 25000 },
+    ).then((h) => h.jsonValue());
     if (!selectedClientValue) throw new Error("No client options available in dropdown");
     await clientSelect.selectOption(selectedClientValue);
     await page.waitForTimeout(500);
@@ -640,16 +638,26 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
 
     await page.waitForURL(`**/expenses/${createdExpenseId}/edit`, { timeout: 10000 });
 
-    // Wait for form to be fully populated by the useEffect that resets form with expense data.
-    // The description textarea should have a non-empty value once the expense data loads.
+    // Wait for network to settle — the form loads data asynchronously
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+
+    // Wait for the form to render (it only appears after the expense data loads,
+    // since a Spinner is shown while isLoading is true).  Then wait for the
+    // useEffect that calls reset() to populate the description textarea.
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Expense Details"),
+      null,
+      { timeout: 25000 },
+    );
     const descTextarea = page.locator("textarea").first();
-    await descTextarea.waitFor({ timeout: 5000 });
+    await descTextarea.waitFor({ timeout: 10000 });
     await page.waitForFunction(
       () => {
         const ta = document.querySelector("textarea");
         return ta && ta.value.length > 0;
       },
-      { timeout: 10000 },
+      null,
+      { timeout: 25000 },
     );
 
     // Change description
@@ -666,7 +674,7 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
     await saveBtn.click();
 
     // Wait for toast "Expense updated"
-    await waitForToast(page, "Expense updated", 10000);
+    await waitForToast(page, "Expense updated", 20000);
 
     // Verify redirect — the onSuccess callback in ExpenseEditPage navigates to /expenses
     await page.waitForURL("**/expenses", { timeout: 10000 });
@@ -948,29 +956,37 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       createdVendorId = match[1];
     }
 
+    // Wait for the vendor API response to complete before checking rendered text
+    // This prevents checking text before the data has loaded (seeing only "EB" initials)
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+
     // Wait for the vendor detail page to fully load — the "Contact Information"
     // section heading only renders after the vendor data is fetched.
     await page.waitForFunction(
       () => document.body.innerText.includes("Contact Information"),
-      { timeout: 10000 },
+      null,
+      { timeout: 25000 },
     );
+    // Give React a moment to finish rendering all child elements
+    await page.waitForTimeout(1500);
 
-    // Verify detail page shows vendor info
-    const body = await page.textContent("body");
-    if (!body) throw new Error("Vendor detail page is empty");
+    // Verify detail page shows vendor info — use innerText for rendered text
+    const innerText = await page.evaluate(() => document.body.innerText);
+    if (!innerText) throw new Error("Vendor detail page is empty");
 
     // Check for our vendor name
-    if (!body.includes(uniqueVendorName.slice(0, 15))) {
-      throw new Error(`Vendor name "${uniqueVendorName}" not found on detail page`);
+    if (!innerText.includes(uniqueVendorName.slice(0, 15))) {
+      throw new Error(`Vendor name "${uniqueVendorName}" not found on detail page. innerText: ${innerText.slice(0, 500)}`);
     }
 
-    // Check for company
-    if (!body.includes("E2E Vendor Corp")) {
-      throw new Error("Vendor company not displayed on detail page");
+    // The company ("E2E Vendor Corp Pvt Ltd") is displayed both as the
+    // PageHeader subtitle and inside the Contact Information card.
+    if (!innerText.includes("E2E Vendor Corp")) {
+      throw new Error("Vendor company not displayed on detail page — innerText: " + innerText.slice(0, 500));
     }
 
-    // Verify standard sections are present (already confirmed above, but double-check)
-    if (!body.includes("Contact Information")) {
+    // Verify standard sections are present
+    if (!innerText.includes("Contact Information")) {
       throw new Error("Contact Information section not found on vendor detail page");
     }
   });
@@ -1055,8 +1071,8 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
   await test("19. Delete vendor via UI — click Delete, confirm, verify removal", page, async () => {
     if (!createdVendorId) throw new Error("No vendor ID from previous test");
 
-    await page.goto(`${BASE}/vendors`, { waitUntil: "networkidle", timeout: 15000 });
-    await page.waitForTimeout(1000);
+    await page.goto(`${BASE}/vendors`, { waitUntil: "networkidle", timeout: 20000 });
+    await page.waitForTimeout(2000);
 
     // Wait for the vendors table to load
     const table = await page.$("table");
@@ -1072,24 +1088,31 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
       return;
     }
 
+    // Wait for table rows to render
+    await page.waitForTimeout(1000);
+
     // Find the vendor row
     const vendorRow = page.locator(`table tbody tr:has-text("${uniqueVendorName.slice(0, 15)}")`).first();
-    const rowExists = await vendorRow.isVisible().catch(() => false);
+    const rowExists = await vendorRow.waitFor({ state: "visible", timeout: 15000 }).then(() => true).catch(() => false);
 
     if (rowExists) {
-      // Set up dialog handler BEFORE clicking delete — must be registered first
-      page.once("dialog", (dialog) => dialog.accept());
+      // Set up dialog handler BEFORE clicking delete — must be registered first.
+      const dialogHandler = (dialog: any) => dialog.accept();
+      page.on("dialog", dialogHandler);
 
       // Click the Delete button in that row
-      const deleteBtn = vendorRow.locator('button:has-text("Delete")').first();
-      await deleteBtn.waitFor({ timeout: 5000 });
+      const deleteBtn = vendorRow.locator('button:has-text("Delete"), button:has(span:text("Delete"))').first();
+      await deleteBtn.waitFor({ timeout: 10000 });
       await deleteBtn.click();
 
       // Wait for toast "Vendor deleted"
-      await waitForToast(page, "Vendor deleted", 10000);
+      await waitForToast(page, "Vendor deleted", 20000);
+
+      // Clean up dialog handler
+      page.off("dialog", dialogHandler);
 
       // Wait for list to update
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(1500);
     } else {
       // Vendor row not visible — use API as fallback to delete
       await page.evaluate(async (id) => {

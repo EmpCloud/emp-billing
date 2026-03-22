@@ -100,7 +100,8 @@ export function ClientEditPage() {
       notes: client.notes ?? "",
       tags: client.tags ?? [],
       portalEnabled: client.portalEnabled ?? false,
-      portalEmail: client.portalEmail ?? "",
+      // portalEmail must be undefined (not "") when empty — Zod .email().optional() rejects ""
+      portalEmail: client.portalEmail && client.portalEmail.length > 0 ? client.portalEmail : undefined,
       customFields: client.customFields ?? {},
     });
   }, [client, reset]);

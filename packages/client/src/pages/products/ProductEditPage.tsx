@@ -160,6 +160,8 @@ export function ProductEditPage() {
       ...values,
       rate: Math.round(values.rate * 100),
       pricingTiers,
+      // Don't send empty string — server expects UUID or undefined
+      taxRateId: values.taxRateId || undefined,
     };
 
     updateProduct.mutate(payload as unknown as Record<string, unknown>, {

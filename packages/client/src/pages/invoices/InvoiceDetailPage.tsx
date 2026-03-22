@@ -42,6 +42,7 @@ const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 
 interface RecordPaymentFormProps {
   invoiceId: string;
+  clientId: string;
   amountDue: number;
   currency: string;
   onSuccess: () => void;
@@ -59,7 +60,7 @@ const RecordPaymentFormSchema = z.object({
 });
 type RecordPaymentFormValues = z.infer<typeof RecordPaymentFormSchema>;
 
-function RecordPaymentForm({ invoiceId, amountDue, currency, onSuccess, onCancel }: RecordPaymentFormProps) {
+function RecordPaymentForm({ invoiceId, clientId, amountDue, currency, onSuccess, onCancel }: RecordPaymentFormProps) {
   const recordPayment = useRecordPayment();
   const amountDueDisplay = amountDue / 100;
 
@@ -81,6 +82,7 @@ function RecordPaymentForm({ invoiceId, amountDue, currency, onSuccess, onCancel
       ...values,
       amount: Math.round(values.amount * 100),
       invoiceId,
+      clientId,
     };
     recordPayment.mutate(
       payload as unknown as Record<string, unknown>,
@@ -599,6 +601,7 @@ export function InvoiceDetailPage() {
       >
         <RecordPaymentForm
           invoiceId={id}
+          clientId={invoice.clientId}
           amountDue={invoice.amountDue}
           currency={invoice.currency}
           onSuccess={() => setPaymentModalOpen(false)}

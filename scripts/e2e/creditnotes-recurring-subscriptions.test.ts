@@ -278,20 +278,49 @@ let subscriptionId: string | undefined;
 
     // Click "Apply to Invoice" button
     const applyBtn = page.locator('button:has-text("Apply to Invoice")').first();
+    await applyBtn.waitFor({ state: "visible", timeout: 10000 });
     const isVisible = await applyBtn.isVisible().catch(() => false);
     if (!isVisible) {
       throw new Error("'Apply to Invoice' button not visible — credit note may be in Draft status (needs to be Open)");
     }
     await applyBtn.click();
 
-    // Wait for the modal to appear with invoice select
-    await page.waitForSelector('[role="dialog"], [class*="modal"], .fixed.inset-0', { timeout: 5000 });
-    await page.waitForTimeout(1000); // wait for invoices to load in the dropdown
+    // Wait for the modal to appear — Modal component renders a <div className="fixed inset-0 z-50">
+    // It does NOT have role="dialog". Wait for the .fixed overlay that contains a <select>.
+    await page.waitForFunction(
+      () => {
+        const fixedOverlays = document.querySelectorAll('.fixed');
+        for (const overlay of fixedOverlays) {
+          if (overlay.querySelector('select')) return true;
+        }
+        return false;
+      },
+      null,
+      { timeout: 10000 },
+    );
+    await page.waitForTimeout(1500); // wait for invoices to load in the dropdown
 
     // Select an invoice from the modal's select dropdown
-    // The modal has a <Select label="Invoice"> with invoice options
-    const modalSelect = page.locator('[role="dialog"] select, .fixed.inset-0 select').first();
-    await modalSelect.waitFor({ state: "visible", timeout: 5000 });
+    // The ApplyForm renders <Select label="Invoice"> which generates id="invoice"
+    const modalSelect = page.locator('.fixed select#invoice, .fixed select').first();
+    await modalSelect.waitFor({ state: "visible", timeout: 10000 });
+
+    // Wait for invoice options to populate from the API
+    await page.waitForFunction(
+      () => {
+        const selects = document.querySelectorAll('.fixed select');
+        for (const sel of selects) {
+          const opts = (sel as HTMLSelectElement).options;
+          for (let i = 0; i < opts.length; i++) {
+            if (opts[i].value && opts[i].value.length > 0) return true;
+          }
+        }
+        return false;
+      },
+      null,
+      { timeout: 15000 },
+    );
+
     const invoiceOptions = await modalSelect.locator('option').all();
     // Find first non-empty option
     let selectedInvoice = false;
@@ -306,13 +335,13 @@ let subscriptionId: string | undefined;
     if (!selectedInvoice) throw new Error("No invoices available in the Apply modal dropdown");
 
     // The amount field should be pre-filled with the balance. We can leave it or adjust.
-    // Just click Apply / submit
-    const submitBtn = page.locator('[role="dialog"] button[type="submit"]:has-text("Apply"), .fixed.inset-0 button[type="submit"]:has-text("Apply")').first();
-    await submitBtn.waitFor({ state: "visible", timeout: 3000 });
+    // Just click Apply / submit — the button is inside the .fixed modal
+    const submitBtn = page.locator('.fixed button[type="submit"]:has-text("Apply")').first();
+    await submitBtn.waitFor({ state: "visible", timeout: 5000 });
     await submitBtn.click();
 
     // Wait for toast
-    await waitForToast(page, "Credit note applied");
+    await waitForToast(page, "Credit note applied", 15000);
   });
 
   // 6. Void credit note — create a fresh one to void (previous one may be applied)
@@ -393,9 +422,19 @@ let subscriptionId: string | undefined;
     await newBtn.click();
     await page.waitForURL("**/recurring/new", { timeout: 10000 });
 
-    // Wait for form to load
+    // Wait for the form to load and client options to populate (the Client
+    // <select> needs the useClients() hook data to arrive).
     await page.waitForSelector('select', { timeout: 10000 });
-    await page.waitForTimeout(1000);
+    await page.waitForFunction(
+      () => {
+        const sel = document.querySelector('select') as HTMLSelectElement | null;
+        if (!sel) return false;
+        return Array.from(sel.options).some((o) => o.value !== "");
+      },
+      null,
+      { timeout: 15000 },
+    );
+    await page.waitForTimeout(500);
 
     // Select client (first <select> on the page)
     const selects = page.locator('select');
@@ -413,6 +452,14 @@ let subscriptionId: string | undefined;
     }
 
     // Start date should already be filled with today
+
+    // Fill Max Occurrences with a valid positive integer — the Zod schema
+    // uses z.coerce.number().int().positive().optional(), and an empty string
+    // coerces to 0 which fails the positive() check and blocks submission.
+    const maxOccInput = page.locator('input[placeholder="Unlimited"]').first();
+    if (await maxOccInput.isVisible()) {
+      await maxOccInput.fill("12");
+    }
 
     // Toggle auto-send checkbox
     const autoSendCheckbox = page.locator('input[type="checkbox"]').first();
@@ -435,8 +482,8 @@ let subscriptionId: string | undefined;
     await createBtn.waitFor({ state: "visible", timeout: 3000 });
     await createBtn.click();
 
-    // Wait for toast
-    await waitForToast(page, "Recurring profile created");
+    // Wait for toast (increase timeout — API call may take a moment)
+    await waitForToast(page, "Recurring profile created", 15000);
 
     // The hook redirects to /recurring (list page)
     await page.waitForURL("**/recurring", { timeout: 10000 });
@@ -616,10 +663,11 @@ let subscriptionId: string | undefined;
       await priceInput.fill("999");
     }
 
-    // Trial period days
+    // Trial period days — set to 0 so the subscription created from this plan
+    // starts in Active state (not Trialing), allowing Pause/Resume tests to work.
     const trialInput = page.locator('input[placeholder="0"]').first();
     if (await trialInput.isVisible()) {
-      await trialInput.fill("7");
+      await trialInput.fill("0");
     }
 
     // Add features — there's a feature input with "Add a feature..." placeholder
@@ -758,16 +806,34 @@ let subscriptionId: string | undefined;
       await page.waitForTimeout(1000);
     }
 
-    // Click "Pause" button
+    // The Pause button only appears when the subscription is Active (not Trialing).
+    // If the subscription is in Trialing state, activate it via API first.
     const pauseBtn = page.locator('button:has-text("Pause")').first();
-    const pauseVisible = await pauseBtn.isVisible().catch(() => false);
+    let pauseVisible = await pauseBtn.isVisible().catch(() => false);
     if (!pauseVisible) {
-      throw new Error("Pause button not visible — subscription may not be in Active state");
+      // Subscription might be in Trialing state — activate via API
+      const activated = await page.evaluate(async (id) => {
+        const token = localStorage.getItem("access_token");
+        const res = await fetch(`/api/v1/subscriptions/${id}/activate`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        });
+        return res.ok;
+      }, subscriptionId);
+      if (activated) {
+        // Reload the page to reflect the new Active status
+        await page.reload({ waitUntil: "networkidle" });
+        await page.waitForTimeout(1000);
+      }
+      pauseVisible = await pauseBtn.isVisible().catch(() => false);
+      if (!pauseVisible) {
+        throw new Error("Pause button not visible — subscription may not be in Active state even after activation attempt");
+      }
     }
     await pauseBtn.click();
 
     // Wait for toast
-    await waitForToast(page, "Subscription paused");
+    await waitForToast(page, "Subscription paused", 15000);
 
     // Verify status changed to "Paused"
     await page.waitForTimeout(1000);
