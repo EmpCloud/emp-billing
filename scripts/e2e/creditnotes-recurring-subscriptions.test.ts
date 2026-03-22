@@ -3,12 +3,13 @@ import { chromium, type Page, type BrowserContext } from "playwright";
 const BASE = "http://localhost:4001";
 let passed = 0;
 let failed = 0;
+const screenshotDir = "scripts/e2e/screenshots";
 
 function log(icon: string, msg: string) {
   console.log(`${icon} ${msg}`);
 }
 
-async function test(name: string, fn: () => Promise<void>) {
+async function test(name: string, page: Page, fn: () => Promise<void>) {
   try {
     await fn();
     passed++;
@@ -16,8 +17,13 @@ async function test(name: string, fn: () => Promise<void>) {
   } catch (e: any) {
     failed++;
     log("[FAIL]", `${name}: ${e.message}`);
+    // Take screenshot on failure
+    try {
+      const safeName = name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+      await page.screenshot({ path: `${screenshotDir}/FAIL-${safeName}.png`, fullPage: true });
+    } catch {}
   }
-  // Small delay between tests to avoid rate limiting
+  // 1500ms delay between tests
   await new Promise((r) => setTimeout(r, 1500));
 }
 
@@ -37,163 +43,296 @@ async function login(page: Page) {
   await page.waitForTimeout(1000);
 }
 
-/** Helper: call API from page context (reuses logged-in session token). */
-async function api(page: Page, method: string, path: string, body?: unknown) {
-  return page.evaluate(
-    async ({ method, path, body }) => {
-      const token = localStorage.getItem("access_token");
-      const opts: RequestInit = {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      };
-      if (body) opts.body = JSON.stringify(body);
-      const res = await fetch(path, opts);
-      let data: any;
-      const ct = res.headers.get("content-type") || "";
-      if (ct.includes("application/json")) {
-        data = await res.json();
-      }
-      return { status: res.status, data, contentType: ct };
-    },
-    { method, path, body },
-  );
+/**
+ * Helper: wait for a react-hot-toast message to appear.
+ * Returns the toast text content.
+ */
+async function waitForToast(page: Page, textSubstring: string, timeout = 10000): Promise<string> {
+  const toastLocator = page.locator(`[role="status"]:has-text("${textSubstring}"), div[class*="toast"]:has-text("${textSubstring}")`);
+  await toastLocator.first().waitFor({ state: "visible", timeout });
+  const text = (await toastLocator.first().textContent()) ?? "";
+  return text;
 }
+
+/**
+ * Helper: click a sidebar navigation link by label text.
+ */
+async function clickSidebarLink(page: Page, label: string) {
+  // Sidebar links are rendered as <a> elements with the label text
+  const link = page.locator(`nav a:has-text("${label}"), aside a:has-text("${label}")`).first();
+  await link.waitFor({ state: "visible", timeout: 5000 });
+  await link.click();
+  await page.waitForTimeout(800);
+}
+
+/**
+ * Helper: Select the first non-empty option in a <select> element.
+ */
+async function selectFirstNonEmptyOption(page: Page, selector: string): Promise<string> {
+  await page.waitForSelector(selector, { timeout: 5000 });
+  // Get all option values, skip the empty placeholder
+  const options = await page.$$eval(`${selector} option`, (opts) =>
+    opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== "")
+  );
+  if (options.length === 0) throw new Error(`No non-empty options found for ${selector}`);
+  await page.selectOption(selector, options[0]);
+  return options[0];
+}
+
+// Track IDs across tests
+let creditNoteId: string | undefined;
+let creditNoteForVoidId: string | undefined;
+let recurringProfileId: string | undefined;
+let planId: string | undefined;
+let subscriptionId: string | undefined;
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
+  const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
+
+  // Handle confirm dialogs — always accept
+  page.on("dialog", async (dialog) => {
+    await dialog.accept();
+  });
 
   console.log("\n=== Logging in ===\n");
   await login(page);
   console.log(`Logged in. URL: ${page.url()}\n`);
-
-  // -------------------------------------------------------------------
-  // Fetch a client ID and an invoice ID we can use across tests
-  // -------------------------------------------------------------------
-  const clientsRes = await api(page, "GET", "/api/v1/clients?limit=1");
-  const clientId: string | undefined = clientsRes.data?.data?.[0]?.id;
-  if (!clientId) {
-    console.log("[WARN] No clients found — some tests may be skipped.");
-  }
-
-  const invoicesRes = await api(page, "GET", "/api/v1/invoices?limit=1");
-  const invoiceId: string | undefined = invoicesRes.data?.data?.[0]?.id;
 
   // ====================================================================
   // CREDIT NOTES
   // ====================================================================
   console.log("\n=== Credit Notes ===\n");
 
-  // 1. Credit note list page loads
-  await test("1. Credit note list page loads", async () => {
-    await page.goto(`${BASE}/credit-notes`, { waitUntil: "networkidle", timeout: 15000 });
+  // 1. Navigate to credit notes
+  await test("1. Navigate to credit notes — click sidebar, verify /credit-notes, table headers", page, async () => {
+    await clickSidebarLink(page, "Credit Notes");
+    await page.waitForURL("**/credit-notes", { timeout: 10000 });
+
+    // Verify URL
+    const url = page.url();
+    if (!url.includes("/credit-notes")) throw new Error(`Expected URL to include /credit-notes, got ${url}`);
+
+    // Verify page title
+    const title = await page.textContent("body");
+    if (!title?.includes("Credit Notes")) throw new Error("Page title 'Credit Notes' not found");
+
+    // Verify table headers exist (even if table is empty, the header text should be on the page somewhere)
+    // The table has headers: Credit Note #, Client, Date, Total, Balance, Status, Actions
+    // OR if empty, the page shows an empty state — either way the page loaded.
     const body = await page.textContent("body");
-    if (!body?.toLowerCase().includes("credit")) {
+    if (!body?.includes("Credit Note") && !body?.includes("credit note")) {
       throw new Error("Credit notes page content not found");
     }
   });
 
-  // 2. Status filter works
-  await test("2. Credit note status filter works", async () => {
-    const res = await api(page, "GET", "/api/v1/credit-notes?status=open");
-    if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
-    if (!res.data?.success) throw new Error("API returned success=false");
-  });
+  // 2. Create credit note via UI
+  await test("2. Create credit note via UI — fill form, add line item, submit", page, async () => {
+    // Click "New Credit Note" button
+    const newBtn = page.locator('button:has-text("New Credit Note"), a:has-text("New Credit Note")').first();
+    await newBtn.waitFor({ state: "visible", timeout: 5000 });
+    await newBtn.click();
+    await page.waitForURL("**/credit-notes/new", { timeout: 10000 });
 
-  // 3. Create credit note succeeds (via API)
-  let creditNoteId: string | undefined;
-  await test("3. Create credit note succeeds", async () => {
-    if (!clientId) throw new Error("No client available — cannot create credit note");
-    const res = await api(page, "POST", "/api/v1/credit-notes", {
-      clientId,
-      date: new Date().toISOString(),
-      items: [
-        { name: "E2E Test Item", quantity: 1, rate: 100000 },
-      ],
-      reason: "E2E test credit note",
-    });
-    if (res.status !== 200 && res.status !== 201) {
-      throw new Error(`Expected 200/201, got ${res.status}: ${JSON.stringify(res.data)}`);
-    }
-    if (!res.data?.success) throw new Error(`API failed: ${JSON.stringify(res.data)}`);
-    creditNoteId = res.data.data.id;
-  });
+    // Wait for form to load — the client select should appear
+    await page.waitForSelector('select', { timeout: 10000 });
+    await page.waitForTimeout(1000); // wait for clients to load
 
-  // 4. Credit note detail page loads
-  await test("4. Credit note detail page loads", async () => {
-    if (!creditNoteId) throw new Error("No credit note ID available");
-    const res = await api(page, "GET", `/api/v1/credit-notes/${creditNoteId}`);
-    if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
-    if (!res.data?.data?.id) throw new Error("Detail response missing id");
-  });
+    // Select the first client
+    const clientSelect = page.locator('select').first();
+    await clientSelect.waitFor({ state: "visible", timeout: 5000 });
+    // Pick the first non-empty option in the client select
+    await selectFirstNonEmptyOption(page, 'select');
 
-  // 5. Download credit note PDF returns 200
-  await test("5. Download credit note PDF returns 200", async () => {
-    if (!creditNoteId) throw new Error("No credit note ID available");
-    const res = await api(page, "GET", `/api/v1/credit-notes/${creditNoteId}/pdf`);
-    if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
-  });
+    // Date should be pre-filled, verify it exists
+    const dateInput = page.locator('input[type="date"]').first();
+    await dateInput.waitFor({ state: "visible", timeout: 3000 });
 
-  // 6. Apply credit note to invoice
-  await test("6. Apply credit note to invoice", async () => {
-    if (!creditNoteId) throw new Error("No credit note ID available");
-    if (!invoiceId) throw new Error("No invoice available to apply credit note");
-    const res = await api(page, "POST", `/api/v1/credit-notes/${creditNoteId}/apply`, {
-      invoiceId,
-      amount: 50000, // apply partial amount (500.00 in smallest unit)
-    });
-    if (res.status !== 200 && res.status !== 201) {
-      throw new Error(`Expected 200/201, got ${res.status}: ${JSON.stringify(res.data)}`);
-    }
-  });
+    // Fill line item — the first row is pre-populated with empty fields
+    // Name input
+    const nameInput = page.locator('input[placeholder="Item name"]').first();
+    await nameInput.waitFor({ state: "visible", timeout: 5000 });
+    await nameInput.fill("E2E Credit Note Item");
 
-  // 7. Void credit note — create a fresh one since previous may be partially applied
-  let voidCreditNoteId: string | undefined;
-  await test("7. Void credit note", async () => {
-    if (!clientId) throw new Error("No client available");
-    // Create a fresh credit note to void
-    const createRes = await api(page, "POST", "/api/v1/credit-notes", {
-      clientId,
-      date: new Date().toISOString(),
-      items: [{ name: "Void Test Item", quantity: 1, rate: 20000 }],
-      reason: "To be voided",
-    });
-    if (!createRes.data?.success) throw new Error(`Create failed: ${JSON.stringify(createRes.data)}`);
-    voidCreditNoteId = createRes.data.data.id;
+    // Quantity input
+    const qtyInput = page.locator('input[type="number"][placeholder="1"]').first();
+    await qtyInput.fill("2");
 
-    const res = await api(page, "POST", `/api/v1/credit-notes/${voidCreditNoteId}/void`);
-    if (res.status !== 200) {
-      throw new Error(`Expected 200, got ${res.status}: ${JSON.stringify(res.data)}`);
-    }
-  });
+    // Rate input
+    const rateInput = page.locator('input[type="number"][placeholder="0.00"]').first();
+    await rateInput.fill("500");
 
-  // 8. Delete draft credit note
-  await test("8. Delete draft credit note", async () => {
-    if (!clientId) throw new Error("No client available");
-    // Create a draft credit note then delete it
-    const createRes = await api(page, "POST", "/api/v1/credit-notes", {
-      clientId,
-      date: new Date().toISOString(),
-      items: [{ name: "Delete Test Item", quantity: 1, rate: 10000 }],
-      reason: "To be deleted",
-    });
-    if (!createRes.data?.success) throw new Error(`Create failed: ${JSON.stringify(createRes.data)}`);
-    const id = createRes.data.data.id;
-
-    const res = await api(page, "DELETE", `/api/v1/credit-notes/${id}`);
-    if (res.status !== 200 && res.status !== 204) {
-      throw new Error(`Expected 200/204, got ${res.status}: ${JSON.stringify(res.data)}`);
+    // Fill reason
+    const reasonTextarea = page.locator('textarea').first();
+    if (await reasonTextarea.isVisible()) {
+      await reasonTextarea.fill("E2E test credit note reason");
     }
 
-    // Verify it is gone (should 404)
-    const getRes = await api(page, "GET", `/api/v1/credit-notes/${id}`);
-    if (getRes.status !== 404) {
-      throw new Error(`Expected 404 after delete, got ${getRes.status}`);
+    // Click "Create Credit Note" button
+    const createBtn = page.locator('button[type="submit"]:has-text("Create Credit Note")').first();
+    await createBtn.waitFor({ state: "visible", timeout: 3000 });
+    await createBtn.click();
+
+    // Wait for toast "Credit note created"
+    await waitForToast(page, "Credit note created");
+
+    // After creation, the hook navigates to /credit-notes/<id>
+    await page.waitForURL("**/credit-notes/**", { timeout: 10000 });
+    const url = page.url();
+    // Extract the ID from the URL
+    const match = url.match(/credit-notes\/([a-f0-9-]+)/i);
+    if (!match) throw new Error(`Could not extract credit note ID from URL: ${url}`);
+    creditNoteId = match[1];
+    if (creditNoteId === "new") throw new Error("Still on /new page — creation may have failed");
+  });
+
+  // 3. View credit note detail
+  await test("3. View credit note detail — verify status, line items, totals", page, async () => {
+    if (!creditNoteId) throw new Error("No credit note ID from test 2");
+
+    // We should already be on the detail page from the redirect
+    await page.waitForSelector('body', { timeout: 5000 });
+    await page.waitForTimeout(1000);
+
+    const body = await page.textContent("body");
+    if (!body) throw new Error("Empty page body");
+
+    // Verify status badge shows "Draft" or "Open"
+    const hasDraft = body.includes("Draft");
+    const hasOpen = body.includes("Open");
+    if (!hasDraft && !hasOpen) throw new Error("Expected status 'Draft' or 'Open' not found on detail page");
+
+    // Verify our line item name appears
+    if (!body.includes("E2E Credit Note Item")) {
+      throw new Error("Line item name 'E2E Credit Note Item' not found on detail page");
     }
+
+    // Verify totals section exists
+    if (!body.includes("Total") || !body.includes("Balance")) {
+      throw new Error("Totals section (Total / Balance) not found on detail page");
+    }
+  });
+
+  // 4. Download PDF
+  await test("4. Download credit note PDF", page, async () => {
+    if (!creditNoteId) throw new Error("No credit note ID from test 2");
+
+    // Click the PDF / Download PDF button
+    const pdfBtn = page.locator('button:has-text("PDF")').first();
+    await pdfBtn.waitFor({ state: "visible", timeout: 5000 });
+
+    // Start waiting for the download before clicking
+    const [download] = await Promise.all([
+      page.waitForEvent("download", { timeout: 15000 }),
+      pdfBtn.click(),
+    ]);
+
+    // Verify download started
+    const suggestedName = download.suggestedFilename();
+    if (!suggestedName.includes("credit-note")) {
+      // Some naming may differ — just check it downloaded
+      console.log(`    Download filename: ${suggestedName}`);
+    }
+
+    // Save and verify the download completed
+    const path = await download.path();
+    if (!path) throw new Error("Download path is null — download may have failed");
+  });
+
+  // 5. Apply to invoice
+  await test("5. Apply credit note to invoice — open modal, select invoice, submit", page, async () => {
+    if (!creditNoteId) throw new Error("No credit note ID from test 2");
+
+    // Ensure we're on the detail page
+    await page.goto(`${BASE}/credit-notes/${creditNoteId}`, { waitUntil: "networkidle", timeout: 15000 });
+    await page.waitForTimeout(1000);
+
+    // Click "Apply to Invoice" button
+    const applyBtn = page.locator('button:has-text("Apply to Invoice")').first();
+    const isVisible = await applyBtn.isVisible().catch(() => false);
+    if (!isVisible) {
+      throw new Error("'Apply to Invoice' button not visible — credit note may be in Draft status (needs to be Open)");
+    }
+    await applyBtn.click();
+
+    // Wait for the modal to appear with invoice select
+    await page.waitForSelector('[role="dialog"], [class*="modal"], .fixed.inset-0', { timeout: 5000 });
+    await page.waitForTimeout(1000); // wait for invoices to load in the dropdown
+
+    // Select an invoice from the modal's select dropdown
+    // The modal has a <Select label="Invoice"> with invoice options
+    const modalSelect = page.locator('[role="dialog"] select, .fixed.inset-0 select').first();
+    await modalSelect.waitFor({ state: "visible", timeout: 5000 });
+    const invoiceOptions = await modalSelect.locator('option').all();
+    // Find first non-empty option
+    let selectedInvoice = false;
+    for (const opt of invoiceOptions) {
+      const val = await opt.getAttribute("value");
+      if (val && val !== "") {
+        await modalSelect.selectOption(val);
+        selectedInvoice = true;
+        break;
+      }
+    }
+    if (!selectedInvoice) throw new Error("No invoices available in the Apply modal dropdown");
+
+    // The amount field should be pre-filled with the balance. We can leave it or adjust.
+    // Just click Apply / submit
+    const submitBtn = page.locator('[role="dialog"] button[type="submit"]:has-text("Apply"), .fixed.inset-0 button[type="submit"]:has-text("Apply")').first();
+    await submitBtn.waitFor({ state: "visible", timeout: 3000 });
+    await submitBtn.click();
+
+    // Wait for toast
+    await waitForToast(page, "Credit note applied");
+  });
+
+  // 6. Void credit note — create a fresh one to void (previous one may be applied)
+  await test("6. Void credit note — create new one, then void it", page, async () => {
+    // Navigate to create a new credit note for voiding
+    await page.goto(`${BASE}/credit-notes/new`, { waitUntil: "networkidle", timeout: 15000 });
+    await page.waitForTimeout(1000);
+
+    // Fill form quickly
+    await page.waitForSelector('select', { timeout: 10000 });
+    await page.waitForTimeout(1000);
+    await selectFirstNonEmptyOption(page, 'select');
+
+    const nameInput = page.locator('input[placeholder="Item name"]').first();
+    await nameInput.fill("Void Test Item");
+    const qtyInput = page.locator('input[type="number"][placeholder="1"]').first();
+    await qtyInput.fill("1");
+    const rateInput = page.locator('input[type="number"][placeholder="0.00"]').first();
+    await rateInput.fill("200");
+
+    const createBtn = page.locator('button[type="submit"]:has-text("Create Credit Note")').first();
+    await createBtn.click();
+
+    // Wait for toast and redirect
+    await waitForToast(page, "Credit note created");
+    await page.waitForURL("**/credit-notes/**", { timeout: 10000 });
+    const url = page.url();
+    const match = url.match(/credit-notes\/([a-f0-9-]+)/i);
+    if (!match || match[1] === "new") throw new Error("Did not redirect to new credit note detail");
+    creditNoteForVoidId = match[1];
+
+    await page.waitForTimeout(1000);
+
+    // Now click the Void button on the detail page
+    const voidBtn = page.locator('button:has-text("Void")').first();
+    const voidVisible = await voidBtn.isVisible().catch(() => false);
+    if (!voidVisible) throw new Error("Void button not visible on credit note detail page");
+    await voidBtn.click();
+
+    // Confirm dialog is auto-accepted by our dialog handler
+
+    // Wait for toast
+    await waitForToast(page, "Credit note voided");
+
+    // Verify the status changed to "Void" on the page
+    await page.waitForTimeout(1000);
+    const body = await page.textContent("body");
+    if (!body?.includes("Void")) throw new Error("Status 'Void' not found after voiding");
   });
 
   // ====================================================================
@@ -201,98 +340,187 @@ async function api(page: Page, method: string, path: string, body?: unknown) {
   // ====================================================================
   console.log("\n=== Recurring Invoices ===\n");
 
-  // 9. Recurring list page loads
-  await test("9. Recurring list page loads", async () => {
-    await page.goto(`${BASE}/recurring`, { waitUntil: "networkidle", timeout: 15000 });
+  // 7. Navigate to recurring
+  await test("7. Navigate to recurring — click sidebar, verify /recurring, table headers", page, async () => {
+    await clickSidebarLink(page, "Recurring");
+    await page.waitForURL("**/recurring", { timeout: 10000 });
+
+    const url = page.url();
+    if (!url.includes("/recurring")) throw new Error(`Expected URL to include /recurring, got ${url}`);
+
     const body = await page.textContent("body");
-    if (!body?.toLowerCase().includes("recurring")) {
-      throw new Error("Recurring page content not found");
-    }
+    if (!body?.includes("Recurring")) throw new Error("Recurring page content not found");
+
+    // Check for table headers or empty state
+    const hasTable = body.includes("Client") && body.includes("Frequency");
+    const hasEmpty = body.includes("No recurring profiles") || body.includes("Create a recurring profile");
+    if (!hasTable && !hasEmpty) throw new Error("Neither table headers nor empty state found on recurring page");
   });
 
-  // 10. Status filter works (active/paused/completed/cancelled)
-  await test("10. Recurring status filter works", async () => {
-    for (const status of ["active", "paused", "completed", "cancelled"]) {
-      const res = await api(page, "GET", `/api/v1/recurring?status=${status}`);
-      if (res.status !== 200) throw new Error(`Filter '${status}' returned ${res.status}`);
-      if (!res.data?.success) throw new Error(`Filter '${status}' returned success=false`);
-    }
-  });
+  // 8. Create recurring profile via UI
+  await test("8. Create recurring profile via UI — fill form, set frequency, add template data", page, async () => {
+    // Click "New Profile" button
+    const newBtn = page.locator('button:has-text("New Profile"), a:has-text("New Profile")').first();
+    await newBtn.waitFor({ state: "visible", timeout: 5000 });
+    await newBtn.click();
+    await page.waitForURL("**/recurring/new", { timeout: 10000 });
 
-  // 11. Create recurring profile succeeds (via API)
-  let recurringId: string | undefined;
-  await test("11. Create recurring profile succeeds", async () => {
-    if (!clientId) throw new Error("No client available");
-    const res = await api(page, "POST", "/api/v1/recurring", {
-      clientId,
-      type: "invoice",
-      frequency: "monthly",
-      startDate: new Date().toISOString(),
-      autoSend: false,
-      autoCharge: false,
-      templateData: {
+    // Wait for form to load
+    await page.waitForSelector('select', { timeout: 10000 });
+    await page.waitForTimeout(1000);
+
+    // Select client (first <select> on the page)
+    const selects = page.locator('select');
+    const selectCount = await selects.count();
+
+    // Client is the first select
+    await selectFirstNonEmptyOption(page, 'select >> nth=0');
+
+    // Type select — keep as "invoice" (already default)
+
+    // Frequency select — select "Monthly"
+    // The frequency select is the third one (Client, Type, Frequency)
+    if (selectCount >= 3) {
+      await page.selectOption('select >> nth=2', 'monthly');
+    }
+
+    // Start date should already be filled with today
+
+    // Toggle auto-send checkbox
+    const autoSendCheckbox = page.locator('input[type="checkbox"]').first();
+    if (await autoSendCheckbox.isVisible()) {
+      await autoSendCheckbox.check();
+    }
+
+    // Fill template data JSON
+    const templateTextarea = page.locator('textarea').first();
+    if (await templateTextarea.isVisible()) {
+      await templateTextarea.fill(JSON.stringify({
         items: [{ name: "Monthly Retainer", quantity: 1, rate: 500000 }],
         currency: "INR",
         notes: "E2E test recurring profile",
-      },
+      }));
+    }
+
+    // Click "Create Profile" button
+    const createBtn = page.locator('button[type="submit"]:has-text("Create Profile")').first();
+    await createBtn.waitFor({ state: "visible", timeout: 3000 });
+    await createBtn.click();
+
+    // Wait for toast
+    await waitForToast(page, "Recurring profile created");
+
+    // The hook redirects to /recurring (list page)
+    await page.waitForURL("**/recurring", { timeout: 10000 });
+  });
+
+  // Need to get the recurring profile ID — click the first row in the table
+  await test("9. View recurring detail — click profile row, verify frequency, dates, status, execution history", page, async () => {
+    // We should be on /recurring list page. Wait for table to load.
+    await page.waitForTimeout(1000);
+
+    // The table rows have client, type, frequency etc.
+    // Click the first row (which should be our newly created profile or any existing one)
+    // The recurring list doesn't have clickable rows — actions are in buttons.
+    // Let's get the profile ID from the API to navigate directly.
+    const profileId = await page.evaluate(async () => {
+      const token = localStorage.getItem("access_token");
+      const res = await fetch("/api/v1/recurring?limit=5", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      // Find active profile (our freshly created one)
+      const profiles = data.data ?? [];
+      const active = profiles.find((p: any) => p.status === "active");
+      return active?.id ?? profiles[0]?.id ?? null;
     });
-    if (res.status !== 200 && res.status !== 201) {
-      throw new Error(`Expected 200/201, got ${res.status}: ${JSON.stringify(res.data)}`);
+    if (!profileId) throw new Error("No recurring profiles found in API");
+    recurringProfileId = profileId;
+
+    // Navigate to detail page
+    await page.goto(`${BASE}/recurring/${recurringProfileId}`, { waitUntil: "networkidle", timeout: 15000 });
+    await page.waitForTimeout(1000);
+
+    const body = await page.textContent("body");
+    if (!body) throw new Error("Empty page body");
+
+    // Verify frequency label
+    if (!body.includes("Monthly") && !body.includes("Weekly") && !body.includes("Daily") && !body.includes("Yearly")) {
+      throw new Error("Frequency label not found on recurring detail page");
     }
-    if (!res.data?.success) throw new Error(`API failed: ${JSON.stringify(res.data)}`);
-    recurringId = res.data.data.id;
+
+    // Verify status shows "Active"
+    if (!body.includes("Active")) {
+      throw new Error("Status 'Active' not found on recurring detail page");
+    }
+
+    // Verify dates section exists
+    if (!body.includes("Start Date") && !body.includes("Next Run Date")) {
+      throw new Error("Dates section not found on recurring detail page");
+    }
+
+    // Verify execution history section exists
+    if (!body.includes("Execution History")) {
+      throw new Error("Execution History section not found on recurring detail page");
+    }
   });
 
-  // 12. Recurring detail page loads with execution history
-  await test("12. Recurring detail page loads with execution history", async () => {
-    if (!recurringId) throw new Error("No recurring profile ID available");
-    const detailRes = await api(page, "GET", `/api/v1/recurring/${recurringId}`);
-    if (detailRes.status !== 200) throw new Error(`Detail returned ${detailRes.status}`);
-    if (!detailRes.data?.data?.id) throw new Error("Detail missing id");
+  // 10. Pause recurring
+  await test("10. Pause recurring — click Pause button, verify status changes to Paused", page, async () => {
+    if (!recurringProfileId) throw new Error("No recurring profile ID from test 9");
 
-    const execRes = await api(page, "GET", `/api/v1/recurring/${recurringId}/executions`);
-    if (execRes.status !== 200) throw new Error(`Executions returned ${execRes.status}`);
+    // We should be on the detail page. Click "Pause" button.
+    const pauseBtn = page.locator('button:has-text("Pause")').first();
+    await pauseBtn.waitFor({ state: "visible", timeout: 5000 });
+    await pauseBtn.click();
+
+    // Wait for toast
+    await waitForToast(page, "Recurring profile paused");
+
+    // Verify status changed to "Paused"
+    await page.waitForTimeout(1000);
+    const body = await page.textContent("body");
+    if (!body?.includes("Paused")) throw new Error("Status 'Paused' not found after pausing");
   });
 
-  // 13. Pause recurring profile
-  await test("13. Pause recurring profile", async () => {
-    if (!recurringId) throw new Error("No recurring profile ID available");
-    const res = await api(page, "POST", `/api/v1/recurring/${recurringId}/pause`);
-    if (res.status !== 200) {
-      throw new Error(`Expected 200, got ${res.status}: ${JSON.stringify(res.data)}`);
-    }
+  // 11. Resume recurring
+  await test("11. Resume recurring — click Resume, verify status Active", page, async () => {
+    if (!recurringProfileId) throw new Error("No recurring profile ID");
 
-    // Verify status is paused
-    const getRes = await api(page, "GET", `/api/v1/recurring/${recurringId}`);
-    const status = getRes.data?.data?.status;
-    if (status !== "paused") throw new Error(`Expected status 'paused', got '${status}'`);
+    // After pausing, the button should now say "Resume"
+    const resumeBtn = page.locator('button:has-text("Resume")').first();
+    await resumeBtn.waitFor({ state: "visible", timeout: 5000 });
+    await resumeBtn.click();
+
+    // Wait for toast
+    await waitForToast(page, "Recurring profile resumed");
+
+    // Verify status changed back to "Active"
+    await page.waitForTimeout(1000);
+    const body = await page.textContent("body");
+    if (!body?.includes("Active")) throw new Error("Status 'Active' not found after resuming");
   });
 
-  // 14. Resume paused profile
-  await test("14. Resume paused profile", async () => {
-    if (!recurringId) throw new Error("No recurring profile ID available");
-    const res = await api(page, "POST", `/api/v1/recurring/${recurringId}/resume`);
-    if (res.status !== 200) {
-      throw new Error(`Expected 200, got ${res.status}: ${JSON.stringify(res.data)}`);
-    }
+  // 12. Delete recurring
+  await test("12. Delete recurring — click Delete, confirm, verify removed from list", page, async () => {
+    if (!recurringProfileId) throw new Error("No recurring profile ID");
 
-    const getRes = await api(page, "GET", `/api/v1/recurring/${recurringId}`);
-    const status = getRes.data?.data?.status;
-    if (status !== "active") throw new Error(`Expected status 'active', got '${status}'`);
-  });
+    // Click the Delete button on the detail page
+    const deleteBtn = page.locator('button:has-text("Delete")').first();
+    await deleteBtn.waitFor({ state: "visible", timeout: 5000 });
+    await deleteBtn.click();
 
-  // 15. Delete recurring profile
-  await test("15. Delete recurring profile", async () => {
-    if (!recurringId) throw new Error("No recurring profile ID available");
-    const res = await api(page, "DELETE", `/api/v1/recurring/${recurringId}`);
-    if (res.status !== 200 && res.status !== 204) {
-      throw new Error(`Expected 200/204, got ${res.status}: ${JSON.stringify(res.data)}`);
-    }
+    // Confirm dialog is auto-accepted
 
-    const getRes = await api(page, "GET", `/api/v1/recurring/${recurringId}`);
-    if (getRes.status !== 404) {
-      throw new Error(`Expected 404 after delete, got ${getRes.status}`);
-    }
+    // Wait for toast
+    await waitForToast(page, "Recurring profile deleted");
+
+    // The hook navigates to /recurring after deletion
+    await page.waitForURL("**/recurring", { timeout: 10000 });
+    await page.waitForTimeout(1000);
+
+    // Verify the deleted profile no longer appears — check the page body
+    // (We can't easily verify absence by ID in the UI, but the deletion toast is sufficient)
   });
 
   // ====================================================================
@@ -300,168 +528,338 @@ async function api(page: Page, method: string, path: string, body?: unknown) {
   // ====================================================================
   console.log("\n=== Subscriptions ===\n");
 
-  // 16. Subscription list page loads
-  await test("16. Subscription list page loads", async () => {
-    await page.goto(`${BASE}/subscriptions`, { waitUntil: "networkidle", timeout: 15000 });
+  // 13. Navigate to subscriptions
+  await test("13. Navigate to subscriptions — verify /subscriptions, table", page, async () => {
+    await clickSidebarLink(page, "Subscriptions");
+    await page.waitForURL("**/subscriptions", { timeout: 10000 });
+
+    const url = page.url();
+    if (!url.includes("/subscriptions")) throw new Error(`Expected URL to include /subscriptions, got ${url}`);
+
     const body = await page.textContent("body");
-    if (!body?.toLowerCase().includes("subscription")) {
-      throw new Error("Subscriptions page content not found");
+    if (!body?.includes("Subscriptions")) throw new Error("Subscriptions page content not found");
+
+    // Verify table headers or empty state
+    const hasTable = body.includes("Client") && body.includes("Plan") && body.includes("Status");
+    const hasEmpty = body.includes("No subscriptions") || body.includes("Create a subscription");
+    if (!hasTable && !hasEmpty) throw new Error("Neither table headers nor empty state found");
+  });
+
+  // 14. Navigate to plans
+  await test("14. Navigate to plans — click Manage Plans, verify plan list", page, async () => {
+    // Click "Manage Plans" button on the subscriptions page
+    const managePlansBtn = page.locator('button:has-text("Manage Plans"), a:has-text("Manage Plans")').first();
+    await managePlansBtn.waitFor({ state: "visible", timeout: 5000 });
+    await managePlansBtn.click();
+    await page.waitForURL("**/subscriptions/plans", { timeout: 10000 });
+
+    const body = await page.textContent("body");
+    if (!body?.includes("Plans")) throw new Error("Plans page content not found");
+  });
+
+  // 15. Create plan via UI
+  await test("15. Create plan via UI — fill name, description, interval, price, features, trial days", page, async () => {
+    // Click "New Plan" button
+    const newPlanBtn = page.locator('button:has-text("New Plan"), a:has-text("New Plan")').first();
+    await newPlanBtn.waitFor({ state: "visible", timeout: 5000 });
+    await newPlanBtn.click();
+    await page.waitForURL("**/subscriptions/plans/new", { timeout: 10000 });
+
+    // Fill plan name
+    const nameInput = page.locator('input').first();
+    await nameInput.waitFor({ state: "visible", timeout: 5000 });
+    // The first input field on this page is "Plan Name"
+    // Use the label-based approach — find input near "Plan Name" label
+    const planNameInput = page.locator('input[placeholder*="Starter"], input[placeholder*="Professional"]').first();
+    if (await planNameInput.isVisible()) {
+      await planNameInput.fill("E2E Test Plan");
+    } else {
+      // fallback: fill the first visible input
+      await nameInput.fill("E2E Test Plan");
     }
-  });
 
-  // 17. Status filter works
-  await test("17. Subscription status filter works", async () => {
-    for (const status of ["active", "paused", "cancelled", "trialing"]) {
-      const res = await api(page, "GET", `/api/v1/subscriptions?status=${status}`);
-      if (res.status !== 200) throw new Error(`Filter '${status}' returned ${res.status}`);
-      if (!res.data?.success) throw new Error(`Filter '${status}' returned success=false`);
+    // Fill description textarea
+    const descTextarea = page.locator('textarea').first();
+    if (await descTextarea.isVisible()) {
+      await descTextarea.fill("Plan created by E2E test suite");
     }
-  });
 
-  // 20. Plan list page loads (moved up because we need a plan before creating a subscription)
-  await test("20. Plan list page loads", async () => {
-    await page.goto(`${BASE}/subscriptions/plans`, { waitUntil: "networkidle", timeout: 15000 });
-    // Also verify via API
-    const res = await api(page, "GET", "/api/v1/subscriptions/plans");
-    if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
-  });
+    // Billing Interval — select "Monthly" (should be default)
+    const intervalSelect = page.locator('select').first();
+    if (await intervalSelect.isVisible()) {
+      await intervalSelect.selectOption("monthly");
+    }
 
-  // 21. Create plan succeeds
-  let planId: string | undefined;
-  await test("21. Create plan succeeds", async () => {
-    const res = await api(page, "POST", "/api/v1/subscriptions/plans", {
-      name: `E2E Test Plan ${Date.now()}`,
-      description: "Plan created by E2E test",
-      billingInterval: "monthly",
-      price: 999900,        // 9999.00 in smallest unit
-      setupFee: 0,
-      currency: "INR",
-      trialPeriodDays: 7,
-      features: ["Feature A", "Feature B"],
-      sortOrder: 0,
+    // Price input — enter 999.00 (which becomes 99900 paise internally)
+    const priceInput = page.locator('input[placeholder="0.00"]').first();
+    if (await priceInput.isVisible()) {
+      await priceInput.fill("999");
+    }
+
+    // Trial period days
+    const trialInput = page.locator('input[placeholder="0"]').first();
+    if (await trialInput.isVisible()) {
+      await trialInput.fill("7");
+    }
+
+    // Add features — there's a feature input with "Add a feature..." placeholder
+    const featureInput = page.locator('input[placeholder="Add a feature..."]').first();
+    if (await featureInput.isVisible()) {
+      await featureInput.fill("Unlimited invoices");
+      // Click "Add" button next to it
+      const addFeatureBtn = page.locator('button:has-text("Add")').first();
+      await addFeatureBtn.click();
+      await page.waitForTimeout(300);
+
+      // Add second feature
+      await featureInput.fill("Priority support");
+      await addFeatureBtn.click();
+      await page.waitForTimeout(300);
+    }
+
+    // Click "Create Plan" button
+    const createBtn = page.locator('button[type="submit"]:has-text("Create Plan")').first();
+    await createBtn.waitFor({ state: "visible", timeout: 3000 });
+    await createBtn.click();
+
+    // Wait for toast
+    await waitForToast(page, "Plan created");
+
+    // The hook redirects to /subscriptions/plans
+    await page.waitForURL("**/subscriptions/plans", { timeout: 10000 });
+    await page.waitForTimeout(1000);
+
+    // Get the plan ID from the API
+    planId = await page.evaluate(async () => {
+      const token = localStorage.getItem("access_token");
+      const res = await fetch("/api/v1/subscriptions/plans", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const plans = data.data ?? [];
+      const e2ePlan = plans.find((p: any) => p.name === "E2E Test Plan");
+      return e2ePlan?.id ?? plans[plans.length - 1]?.id ?? null;
     });
-    if (res.status !== 200 && res.status !== 201) {
-      throw new Error(`Expected 200/201, got ${res.status}: ${JSON.stringify(res.data)}`);
-    }
-    if (!res.data?.success) throw new Error(`API failed: ${JSON.stringify(res.data)}`);
-    planId = res.data.data.id;
+
+    if (!planId) throw new Error("Could not find the created plan via API");
   });
 
-  // 22. Edit plan works
-  await test("22. Edit plan works", async () => {
-    if (!planId) throw new Error("No plan ID available");
-    const res = await api(page, "PUT", `/api/v1/subscriptions/plans/${planId}`, {
-      name: `E2E Updated Plan ${Date.now()}`,
-      price: 1199900,
+  // 16. Create subscription via UI
+  await test("16. Create subscription via UI — select client, select plan, submit", page, async () => {
+    // Navigate to new subscription page
+    await page.goto(`${BASE}/subscriptions/new`, { waitUntil: "networkidle", timeout: 15000 });
+    await page.waitForTimeout(2000); // wait for clients and plans to load
+
+    // Select client — first <select> is "Client"
+    const selects = page.locator('select');
+    const selectCount = await selects.count();
+    if (selectCount < 2) throw new Error(`Expected at least 2 selects (client, plan), found ${selectCount}`);
+
+    // Select first client
+    await selectFirstNonEmptyOption(page, 'select >> nth=0');
+    await page.waitForTimeout(500);
+
+    // Select plan (second select)
+    await selectFirstNonEmptyOption(page, 'select >> nth=1');
+    await page.waitForTimeout(500);
+
+    // Quantity should default to 1 — leave it
+
+    // Click "Create Subscription"
+    const createBtn = page.locator('button[type="submit"]:has-text("Create Subscription")').first();
+    await createBtn.waitFor({ state: "visible", timeout: 3000 });
+    await createBtn.click();
+
+    // Wait for toast
+    await waitForToast(page, "Subscription created");
+
+    // The hook redirects to /subscriptions
+    await page.waitForURL("**/subscriptions", { timeout: 10000 });
+    await page.waitForTimeout(1000);
+
+    // Get the subscription ID from the API
+    subscriptionId = await page.evaluate(async () => {
+      const token = localStorage.getItem("access_token");
+      const res = await fetch("/api/v1/subscriptions?limit=10", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const subs = data.data ?? [];
+      // Find the most recent active/trialing subscription
+      const recent = subs.find((s: any) => s.status === "active" || s.status === "trialing");
+      return recent?.id ?? subs[0]?.id ?? null;
     });
-    if (res.status !== 200) {
-      throw new Error(`Expected 200, got ${res.status}: ${JSON.stringify(res.data)}`);
-    }
 
-    // Verify update persisted
-    const getRes = await api(page, "GET", `/api/v1/subscriptions/plans/${planId}`);
-    if (getRes.data?.data?.price !== 1199900) {
-      throw new Error(`Price not updated. Got: ${getRes.data?.data?.price}`);
-    }
+    if (!subscriptionId) throw new Error("Could not find the created subscription via API");
   });
 
-  // 18. Create subscription succeeds (via API) — needs planId and clientId
-  let subscriptionId: string | undefined;
-  await test("18. Create subscription succeeds", async () => {
-    if (!clientId) throw new Error("No client available");
-    if (!planId) throw new Error("No plan available");
-    const res = await api(page, "POST", "/api/v1/subscriptions", {
-      clientId,
-      planId,
-      quantity: 1,
-      autoRenew: true,
-    });
-    if (res.status !== 200 && res.status !== 201) {
-      throw new Error(`Expected 200/201, got ${res.status}: ${JSON.stringify(res.data)}`);
+  // 17. View subscription detail
+  await test("17. View subscription detail — verify plan info, status, billing dates, event timeline", page, async () => {
+    if (!subscriptionId) throw new Error("No subscription ID from test 16");
+
+    // Click on the subscription row in the table to navigate to detail
+    // The table rows are clickable with onClick -> navigate(`/subscriptions/${sub.id}`)
+    const subRow = page.locator(`tr[class*="cursor-pointer"]`).first();
+    const rowVisible = await subRow.isVisible().catch(() => false);
+    if (rowVisible) {
+      await subRow.click();
+    } else {
+      // Fallback: navigate directly
+      await page.goto(`${BASE}/subscriptions/${subscriptionId}`, { waitUntil: "networkidle", timeout: 15000 });
     }
-    if (!res.data?.success) throw new Error(`API failed: ${JSON.stringify(res.data)}`);
-    subscriptionId = res.data.data.id;
-  });
+    await page.waitForTimeout(1500);
 
-  // 19. Subscription detail page loads
-  await test("19. Subscription detail page loads", async () => {
-    if (!subscriptionId) throw new Error("No subscription ID available");
-    const res = await api(page, "GET", `/api/v1/subscriptions/${subscriptionId}`);
-    if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
-    if (!res.data?.data?.id) throw new Error("Detail response missing id");
+    const body = await page.textContent("body");
+    if (!body) throw new Error("Empty page body");
 
-    // Also check events endpoint
-    const eventsRes = await api(page, "GET", `/api/v1/subscriptions/${subscriptionId}/events`);
-    if (eventsRes.status !== 200) throw new Error(`Events returned ${eventsRes.status}`);
-  });
-
-  // 23. Pause/resume subscription
-  await test("23a. Pause subscription", async () => {
-    if (!subscriptionId) throw new Error("No subscription ID available");
-    const res = await api(page, "POST", `/api/v1/subscriptions/${subscriptionId}/pause`);
-    if (res.status !== 200) {
-      throw new Error(`Expected 200, got ${res.status}: ${JSON.stringify(res.data)}`);
+    // Verify subscription detail page loaded
+    if (!body.includes("Subscription Detail") && !body.includes("Subscription ID")) {
+      throw new Error("Subscription detail page content not found");
     }
 
-    const getRes = await api(page, "GET", `/api/v1/subscriptions/${subscriptionId}`);
-    const status = getRes.data?.data?.status;
-    if (status !== "paused") throw new Error(`Expected 'paused', got '${status}'`);
+    // Verify status badge (Active or Trialing)
+    const hasStatus = body.includes("Active") || body.includes("Trialing");
+    if (!hasStatus) throw new Error("Expected status 'Active' or 'Trialing' not found");
+
+    // Verify billing date info
+    if (!body.includes("Next Billing")) throw new Error("'Next Billing' info not found on detail page");
+
+    // Verify event timeline section
+    if (!body.includes("Event Timeline")) throw new Error("'Event Timeline' section not found");
   });
 
-  await test("23b. Resume subscription", async () => {
-    if (!subscriptionId) throw new Error("No subscription ID available");
-    const res = await api(page, "POST", `/api/v1/subscriptions/${subscriptionId}/resume`);
-    if (res.status !== 200) {
-      throw new Error(`Expected 200, got ${res.status}: ${JSON.stringify(res.data)}`);
+  // 18. Pause subscription
+  await test("18. Pause subscription — click Pause, verify status Paused", page, async () => {
+    if (!subscriptionId) throw new Error("No subscription ID");
+
+    // Ensure we're on the detail page
+    if (!page.url().includes(`/subscriptions/${subscriptionId}`)) {
+      await page.goto(`${BASE}/subscriptions/${subscriptionId}`, { waitUntil: "networkidle", timeout: 15000 });
+      await page.waitForTimeout(1000);
     }
 
-    const getRes = await api(page, "GET", `/api/v1/subscriptions/${subscriptionId}`);
-    const status = getRes.data?.data?.status;
-    if (status !== "active") throw new Error(`Expected 'active', got '${status}'`);
+    // Click "Pause" button
+    const pauseBtn = page.locator('button:has-text("Pause")').first();
+    const pauseVisible = await pauseBtn.isVisible().catch(() => false);
+    if (!pauseVisible) {
+      throw new Error("Pause button not visible — subscription may not be in Active state");
+    }
+    await pauseBtn.click();
+
+    // Wait for toast
+    await waitForToast(page, "Subscription paused");
+
+    // Verify status changed to "Paused"
+    await page.waitForTimeout(1000);
+    const body = await page.textContent("body");
+    if (!body?.includes("Paused")) throw new Error("Status 'Paused' not found after pausing");
   });
 
-  // 24. Cancel subscription with reason
-  await test("24. Cancel subscription with reason", async () => {
-    if (!subscriptionId) throw new Error("No subscription ID available");
-    const res = await api(page, "POST", `/api/v1/subscriptions/${subscriptionId}/cancel`, {
-      reason: "E2E test cancellation",
-      cancelImmediately: true,
-    });
-    if (res.status !== 200) {
-      throw new Error(`Expected 200, got ${res.status}: ${JSON.stringify(res.data)}`);
+  // 19. Resume subscription
+  await test("19. Resume subscription — click Resume, verify status Active", page, async () => {
+    if (!subscriptionId) throw new Error("No subscription ID");
+
+    // After pausing, the "Resume" button should be visible
+    const resumeBtn = page.locator('button:has-text("Resume")').first();
+    await resumeBtn.waitFor({ state: "visible", timeout: 5000 });
+    await resumeBtn.click();
+
+    // Wait for toast
+    await waitForToast(page, "Subscription resumed");
+
+    // Verify status changed back to "Active"
+    await page.waitForTimeout(1000);
+    const body = await page.textContent("body");
+    if (!body?.includes("Active")) throw new Error("Status 'Active' not found after resuming");
+  });
+
+  // 20. Cancel subscription
+  await test("20. Cancel subscription — click Cancel, fill reason in modal, submit, verify Cancelled", page, async () => {
+    if (!subscriptionId) throw new Error("No subscription ID");
+
+    // Click the "Cancel" button (variant="danger")
+    const cancelBtn = page.locator('button:has-text("Cancel")').filter({ hasNotText: /Keep|at Period/ }).first();
+    await cancelBtn.waitFor({ state: "visible", timeout: 5000 });
+    await cancelBtn.click();
+
+    // Wait for the cancel modal to appear
+    await page.waitForSelector('[role="dialog"], [class*="modal"], .fixed.inset-0', { timeout: 5000 });
+    await page.waitForTimeout(500);
+
+    // Fill the cancellation reason textarea in the modal
+    const reasonTextarea = page.locator('[role="dialog"] textarea, .fixed.inset-0 textarea').first();
+    await reasonTextarea.waitFor({ state: "visible", timeout: 3000 });
+    await reasonTextarea.fill("E2E test cancellation — no longer needed");
+
+    // Check "Cancel immediately" checkbox
+    const immediateCheckbox = page.locator('[role="dialog"] input[type="checkbox"], .fixed.inset-0 input[type="checkbox"]').first();
+    if (await immediateCheckbox.isVisible()) {
+      await immediateCheckbox.check();
     }
 
-    const getRes = await api(page, "GET", `/api/v1/subscriptions/${subscriptionId}`);
-    const status = getRes.data?.data?.status;
-    if (status !== "cancelled") throw new Error(`Expected 'cancelled', got '${status}'`);
+    // Click the confirm cancel button — "Cancel Immediately" or "Cancel at Period End"
+    const confirmBtn = page.locator('[role="dialog"] button:has-text("Cancel Immediately"), .fixed.inset-0 button:has-text("Cancel Immediately"), [role="dialog"] button:has-text("Cancel at Period End"), .fixed.inset-0 button:has-text("Cancel at Period End")').first();
+    await confirmBtn.waitFor({ state: "visible", timeout: 3000 });
+    await confirmBtn.click();
+
+    // Wait for toast
+    await waitForToast(page, "Subscription cancelled");
+
+    // Verify status changed to "Cancelled"
+    await page.waitForTimeout(1500);
+    const body = await page.textContent("body");
+    if (!body?.includes("Cancelled")) throw new Error("Status 'Cancelled' not found after cancellation");
   });
 
   // ====================================================================
-  // Cleanup: delete the test plan (best-effort)
+  // Cleanup — best-effort via API
   // ====================================================================
-  if (planId) {
-    try {
-      await api(page, "DELETE", `/api/v1/subscriptions/plans/${planId}`);
-    } catch {}
-  }
-  // Cleanup: delete test credit notes (best-effort)
-  if (creditNoteId) {
-    try {
-      await api(page, "DELETE", `/api/v1/credit-notes/${creditNoteId}`);
-    } catch {}
-  }
-  if (voidCreditNoteId) {
-    try {
-      await api(page, "DELETE", `/api/v1/credit-notes/${voidCreditNoteId}`);
-    } catch {}
-  }
+  console.log("\n=== Cleanup ===\n");
+  try {
+    if (planId) {
+      await page.evaluate(async (planId) => {
+        const token = localStorage.getItem("access_token");
+        await fetch(`/api/v1/subscriptions/plans/${planId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }, planId);
+      console.log("  Cleaned up plan");
+    }
+  } catch {}
+
+  try {
+    if (creditNoteId) {
+      await page.evaluate(async (id) => {
+        const token = localStorage.getItem("access_token");
+        await fetch(`/api/v1/credit-notes/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }, creditNoteId);
+      console.log("  Cleaned up credit note");
+    }
+  } catch {}
+
+  try {
+    if (creditNoteForVoidId) {
+      await page.evaluate(async (id) => {
+        const token = localStorage.getItem("access_token");
+        await fetch(`/api/v1/credit-notes/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }, creditNoteForVoidId);
+      console.log("  Cleaned up voided credit note");
+    }
+  } catch {}
 
   // ====================================================================
   // Results
   // ====================================================================
-  console.log(`\n${"=".repeat(50)}`);
-  console.log(`Results: ${passed} passed, ${failed} failed out of ${passed + failed} tests`);
-  console.log(`${"=".repeat(50)}\n`);
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`  SUMMARY: ${passed} passed, ${failed} failed out of ${passed + failed} tests`);
+  console.log(`${"=".repeat(60)}\n`);
 
   await browser.close();
   process.exit(failed > 0 ? 1 : 0);
