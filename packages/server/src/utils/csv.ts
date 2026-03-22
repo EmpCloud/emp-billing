@@ -5,7 +5,9 @@
 
 /** Parse a CSV string into an array of objects using the header row as keys */
 export function parseCSV(csvString: string): Record<string, string>[] {
-  const lines = csvString.split(/\r?\n/).filter(line => line.trim());
+  // Strip BOM (byte-order mark) that Excel and other tools may prepend
+  const cleaned = csvString.replace(/^\uFEFF/, "");
+  const lines = cleaned.split(/\r?\n/).filter(line => line.trim());
   if (lines.length < 2) return [];
 
   const headers = parseLine(lines[0]);

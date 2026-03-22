@@ -90,12 +90,18 @@ export function useConvertQuoteToInvoice() {
 
 export function useDownloadQuotePdf(id: string) {
   return async () => {
-    const res = await api.get(`/quotes/${id}/pdf`, { responseType: "blob" });
-    const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `quote-${id}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const res = await api.get(`/quotes/${id}/pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `quote-${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Failed to download PDF");
+    }
   };
 }

@@ -51,7 +51,11 @@ const swagger_1 = require("./api/docs/swagger");
 const app = (0, express_1.default)();
 exports.app = app;
 // ── Global middleware ─────────────────────────────────────────────────────────
-app.use((0, helmet_1.default)());
+app.use((0, helmet_1.default)({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false,
+}));
 app.use((0, cors_1.default)({ origin: index_1.config.corsOrigin, credentials: true }));
 app.use((0, compression_1.default)());
 app.use(express_1.default.json({ limit: "10mb" }));

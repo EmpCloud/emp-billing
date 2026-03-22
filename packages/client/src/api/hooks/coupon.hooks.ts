@@ -63,7 +63,10 @@ export function useValidateCoupon() {
         "/coupons/validate",
         data
       ),
-    onError: () => toast.error("Invalid coupon code"),
+    onError: (err: any) => {
+      const message = err?.response?.data?.error?.message || "Invalid coupon code";
+      toast.error(message);
+    },
   });
 }
 
@@ -76,7 +79,10 @@ export function useApplyCoupon() {
       qc.invalidateQueries({ queryKey: [COUPONS_KEY] });
       toast.success("Coupon applied successfully");
     },
-    onError: () => toast.error("Failed to apply coupon"),
+    onError: (err: any) => {
+      const message = err?.response?.data?.error?.message || "Failed to apply coupon";
+      toast.error(message);
+    },
   });
 }
 

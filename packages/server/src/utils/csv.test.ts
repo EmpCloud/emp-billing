@@ -43,6 +43,14 @@ describe("csv utility", () => {
       expect(result).toEqual([]);
     });
 
+    it("handles BOM (byte-order mark) prefix", () => {
+      const csv = "\uFEFFname,email\nJohn,john@test.com";
+      const result = parseCSV(csv);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({ name: "John", email: "john@test.com" });
+    });
+
     it("trims whitespace from headers and values", () => {
       const csv = " name , email \n John , john@test.com ";
       const result = parseCSV(csv);

@@ -290,7 +290,7 @@ export declare const UpdateOrgSchema: z.ZodObject<{
 export declare const ClientContactSchema: z.ZodObject<{
     name: z.ZodString;
     email: z.ZodString;
-    phone: z.ZodOptional<z.ZodString>;
+    phone: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
     designation: z.ZodOptional<z.ZodString>;
     isPrimary: z.ZodDefault<z.ZodBoolean>;
 }, "strip", z.ZodTypeAny, {
@@ -310,7 +310,7 @@ export declare const CreateClientSchema: z.ZodObject<{
     name: z.ZodEffects<z.ZodString, string, string>;
     displayName: z.ZodString;
     email: z.ZodString;
-    phone: z.ZodOptional<z.ZodString>;
+    phone: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
     website: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
     taxId: z.ZodOptional<z.ZodString>;
     billingAddress: z.ZodOptional<z.ZodObject<{
@@ -360,7 +360,7 @@ export declare const CreateClientSchema: z.ZodObject<{
     contacts: z.ZodDefault<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
         email: z.ZodString;
-        phone: z.ZodOptional<z.ZodString>;
+        phone: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
         designation: z.ZodOptional<z.ZodString>;
         isPrimary: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
@@ -462,7 +462,7 @@ export declare const UpdateClientSchema: z.ZodObject<{
     name: z.ZodOptional<z.ZodEffects<z.ZodString, string, string>>;
     displayName: z.ZodOptional<z.ZodString>;
     email: z.ZodOptional<z.ZodString>;
-    phone: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+    phone: z.ZodOptional<z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>>;
     website: z.ZodOptional<z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>>;
     taxId: z.ZodOptional<z.ZodOptional<z.ZodString>>;
     billingAddress: z.ZodOptional<z.ZodOptional<z.ZodObject<{
@@ -512,7 +512,7 @@ export declare const UpdateClientSchema: z.ZodObject<{
     contacts: z.ZodOptional<z.ZodDefault<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
         email: z.ZodString;
-        phone: z.ZodOptional<z.ZodString>;
+        phone: z.ZodUnion<[z.ZodOptional<z.ZodString>, z.ZodLiteral<"">]>;
         designation: z.ZodOptional<z.ZodString>;
         isPrimary: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
@@ -2148,11 +2148,12 @@ export declare const UpdateCouponSchema: z.ZodObject<{
     currency: z.ZodOptional<z.ZodOptional<z.ZodString>>;
     appliesTo: z.ZodOptional<z.ZodDefault<z.ZodNativeEnum<typeof CouponAppliesTo>>>;
     productId: z.ZodOptional<z.ZodOptional<z.ZodString>>;
-    maxRedemptions: z.ZodOptional<z.ZodOptional<z.ZodNumber>>;
-    maxRedemptionsPerClient: z.ZodOptional<z.ZodOptional<z.ZodNumber>>;
     minAmount: z.ZodOptional<z.ZodDefault<z.ZodNumber>>;
     validFrom: z.ZodOptional<z.ZodDate>;
     validUntil: z.ZodOptional<z.ZodOptional<z.ZodDate>>;
+} & {
+    maxRedemptions: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    maxRedemptionsPerClient: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
 }, "strip", z.ZodTypeAny, {
     value?: number | undefined;
     code?: string | undefined;
@@ -2161,8 +2162,8 @@ export declare const UpdateCouponSchema: z.ZodObject<{
     name?: string | undefined;
     productId?: string | undefined;
     appliesTo?: CouponAppliesTo | undefined;
-    maxRedemptions?: number | undefined;
-    maxRedemptionsPerClient?: number | undefined;
+    maxRedemptions?: number | null | undefined;
+    maxRedemptionsPerClient?: number | null | undefined;
     minAmount?: number | undefined;
     validFrom?: Date | undefined;
     validUntil?: Date | undefined;
@@ -2174,8 +2175,8 @@ export declare const UpdateCouponSchema: z.ZodObject<{
     name?: string | undefined;
     productId?: string | undefined;
     appliesTo?: CouponAppliesTo | undefined;
-    maxRedemptions?: number | undefined;
-    maxRedemptionsPerClient?: number | undefined;
+    maxRedemptions?: number | null | undefined;
+    maxRedemptionsPerClient?: number | null | undefined;
     minAmount?: number | undefined;
     validFrom?: Date | undefined;
     validUntil?: Date | undefined;

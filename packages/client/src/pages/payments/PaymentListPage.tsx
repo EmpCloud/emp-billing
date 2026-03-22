@@ -5,7 +5,7 @@ import dayjs from "dayjs";
 import { formatMoney, PaymentMethod } from "@emp-billing/shared";
 import { usePayments, useDownloadPaymentReceipt } from "@/api/hooks/payment.hooks";
 import { Button } from "@/components/common/Button";
-import { Select } from "@/components/common/Input";
+import { SearchableSelect } from "@/components/common/Input";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Spinner } from "@/components/common/Spinner";
@@ -61,12 +61,18 @@ export function PaymentListPage() {
 
       {/* Filter */}
       <div className="mb-4 w-48">
-        <Select value={method} onChange={(e) => setMethod(e.target.value)}>
-          <option value="">All Methods</option>
-          {Object.entries(PAYMENT_METHOD_LABELS).map(([val, label]) => (
-            <option key={val} value={val}>{label}</option>
-          ))}
-        </Select>
+        <SearchableSelect
+          value={method}
+          onChange={(val) => setMethod(val)}
+          placeholder="All Methods"
+          options={[
+            { value: "", label: "All Methods" },
+            ...Object.entries(PAYMENT_METHOD_LABELS).map(([val, label]) => ({
+              value: val,
+              label,
+            })),
+          ]}
+        />
       </div>
 
       {/* Loading */}

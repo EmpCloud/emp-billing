@@ -12,6 +12,7 @@ import {
 // ============================================================================
 
 const alphaWithSpaces = /^[A-Za-z\s\-'.]+$/;
+const phonePattern = /^\+?[\d\s\-().]+$/;
 
 export const AddressSchema = z.object({
   line1: z.string().min(1, "Address line 1 is required"),
@@ -111,7 +112,7 @@ export const UpdateOrgSchema = CreateOrgSchema.partial();
 export const ClientContactSchema = z.object({
   name: z.string().min(1).max(100),
   email: z.string().email(),
-  phone: z.string().optional(),
+  phone: z.string().regex(phonePattern, "Phone must contain only numbers, spaces, and +/-(). characters").optional().or(z.literal("")),
   designation: z.string().optional(),
   isPrimary: z.boolean().default(false),
 });
@@ -120,7 +121,7 @@ export const CreateClientSchema = z.object({
   name: z.string().min(1, "Client name is required").max(100).refine((v) => !/^\d+$/.test(v.trim()), "Client name cannot be purely numeric"),
   displayName: z.string().min(1).max(100),
   email: z.string().email("Valid email required"),
-  phone: z.string().optional(),
+  phone: z.string().regex(phonePattern, "Phone must contain only numbers, spaces, and +/-(). characters").optional().or(z.literal("")),
   website: z.string().url().optional().or(z.literal("")),
   taxId: z.string().optional(),
   billingAddress: AddressSchema.optional(),
@@ -532,7 +533,10 @@ export const CreateCouponSchema = z.object({
   validUntil: z.coerce.date().optional(),
 });
 
-export const UpdateCouponSchema = CreateCouponSchema.partial();
+export const UpdateCouponSchema = CreateCouponSchema.partial().extend({
+  maxRedemptions: z.number().int().positive().nullable().optional(),
+  maxRedemptionsPerClient: z.number().int().positive().nullable().optional(),
+});
 
 export const ApplyCouponSchema = z.object({
   code: z.string().min(1, "Coupon code is required"),

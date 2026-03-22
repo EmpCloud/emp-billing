@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CreateClientSchema } from "@emp-billing/shared";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/common/Input";
 import { PageHeader } from "@/components/common/PageHeader";
 import { TagInput } from "@/components/common/TagInput";
 import { CustomFieldsEditor } from "@/components/common/CustomFieldsEditor";
+import { AddressFields } from "@/components/common/AddressFields";
 
 type FormValues = z.infer<typeof CreateClientSchema>;
 
@@ -34,12 +35,7 @@ export function ClientCreatePage() {
   const navigate = useNavigate();
   const createClient = useCreateClient();
 
-  const {
-    register,
-    handleSubmit,
-    control,
-    formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
+  const methods = useForm<FormValues>({
     resolver: zodResolver(CreateClientSchema),
     defaultValues: {
       currency: "INR",
@@ -50,6 +46,13 @@ export function ClientCreatePage() {
       customFields: {},
     },
   });
+
+  const {
+    register,
+    handleSubmit,
+    control,
+    formState: { errors, isSubmitting },
+  } = methods;
 
   function onSubmit(values: FormValues) {
     createClient.mutate(values as unknown as Record<string, unknown>, {
@@ -64,163 +67,144 @@ export function ClientCreatePage() {
         breadcrumb={[{ label: "Clients", href: "/clients" }, { label: "New Client" }]}
       />
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-        {/* Basic Info */}
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="text-base font-semibold text-gray-800">Basic Information</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input
-              label="Client Name"
-              required
-              placeholder="Acme Corp"
-              error={errors.name?.message}
-              {...register("name")}
-            />
-            <Input
-              label="Display Name"
-              placeholder="Acme"
-              error={errors.displayName?.message}
-              {...register("displayName")}
-            />
-            <Input
-              label="Email"
-              type="email"
-              required
-              placeholder="billing@acme.com"
-              error={errors.email?.message}
-              {...register("email")}
-            />
-            <Input
-              label="Phone"
-              type="tel"
-              placeholder="+91 98765 43210"
-              error={errors.phone?.message}
-              {...register("phone")}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Select
-              label="Currency"
-              error={errors.currency?.message}
-              {...register("currency")}
-            >
-              {CURRENCIES.map((c) => (
-                <option key={c.code} value={c.code}>{c.label}</option>
-              ))}
-            </Select>
-            <Select
-              label="Payment Terms"
-              error={errors.paymentTerms?.message}
-              {...register("paymentTerms", { valueAsNumber: true })}
-            >
-              {PAYMENT_TERMS.map((t) => (
-                <option key={t.days} value={t.days}>{t.label}</option>
-              ))}
-            </Select>
-          </div>
-
-          <Input
-            label="GSTIN / Tax ID"
-            placeholder="22AAAAA0000A1Z5"
-            error={errors.taxId?.message}
-            {...register("taxId")}
-          />
-        </section>
-
-        {/* Billing Address */}
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="text-base font-semibold text-gray-800">Billing Address</h2>
-          <div className="grid grid-cols-1 gap-4">
-            <Input
-              label="Address Line 1"
-              placeholder="123 Main Street"
-              error={errors.billingAddress?.line1?.message}
-              {...register("billingAddress.line1")}
-            />
+      <FormProvider {...methods}>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+          {/* Basic Info */}
+          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-gray-800">Basic Information</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="City"
-                placeholder="Mumbai"
-                error={errors.billingAddress?.city?.message}
-                {...register("billingAddress.city")}
+                label="Client Name"
+                required
+                placeholder="Acme Corp"
+                error={errors.name?.message}
+                {...register("name")}
               />
               <Input
-                label="State"
-                placeholder="Maharashtra"
-                error={errors.billingAddress?.state?.message}
-                {...register("billingAddress.state")}
+                label="Display Name"
+                placeholder="Acme"
+                error={errors.displayName?.message}
+                {...register("displayName")}
               />
               <Input
-                label="Postal Code"
-                placeholder="400001"
-                error={errors.billingAddress?.postalCode?.message}
-                {...register("billingAddress.postalCode")}
+                label="Email"
+                type="email"
+                required
+                placeholder="billing@acme.com"
+                error={errors.email?.message}
+                {...register("email")}
               />
               <Input
-                label="Country"
-                placeholder="India"
-                error={errors.billingAddress?.country?.message}
-                {...register("billingAddress.country")}
+                label="Phone"
+                type="tel"
+                placeholder="+91 98765 43210"
+                error={errors.phone?.message}
+                onKeyDown={(e) => {
+                  // Allow control keys, digits, +, -, (, ), space, and period
+                  const allowed = /[\d\s+\-().]/;
+                  if (
+                    e.key.length === 1 &&
+                    !allowed.test(e.key) &&
+                    !e.ctrlKey &&
+                    !e.metaKey
+                  ) {
+                    e.preventDefault();
+                  }
+                }}
+                {...register("phone")}
               />
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Select
+                label="Currency"
+                error={errors.currency?.message}
+                {...register("currency")}
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>{c.label}</option>
+                ))}
+              </Select>
+              <Select
+                label="Payment Terms"
+                error={errors.paymentTerms?.message}
+                {...register("paymentTerms", { valueAsNumber: true })}
+              >
+                {PAYMENT_TERMS.map((t) => (
+                  <option key={t.days} value={t.days}>{t.label}</option>
+                ))}
+              </Select>
+            </div>
+
+            <Input
+              label="GSTIN / Tax ID"
+              placeholder="22AAAAA0000A1Z5"
+              error={errors.taxId?.message}
+              {...register("taxId")}
+            />
+          </section>
+
+          {/* Billing Address */}
+          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-gray-800">Billing Address</h2>
+            <AddressFields prefix="billingAddress" />
+          </section>
+
+          {/* Tags */}
+          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-gray-800">Tags</h2>
+            <Controller
+              name="tags"
+              control={control}
+              render={({ field }) => (
+                <TagInput
+                  label="Tags"
+                  value={field.value ?? []}
+                  onChange={field.onChange}
+                  placeholder="Type a tag and press Enter…"
+                />
+              )}
+            />
+          </section>
+
+          {/* Notes */}
+          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-gray-800">Additional Notes</h2>
+            <Textarea
+              label="Notes"
+              rows={3}
+              placeholder="Internal notes about this client…"
+              error={errors.notes?.message}
+              {...register("notes")}
+            />
+          </section>
+
+          {/* Custom Fields */}
+          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-gray-800">Custom Fields</h2>
+            <Controller
+              name="customFields"
+              control={control}
+              render={({ field }) => (
+                <CustomFieldsEditor
+                  value={field.value ?? {}}
+                  onChange={field.onChange}
+                />
+              )}
+            />
+          </section>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3">
+            <Button type="submit" loading={isSubmitting || createClient.isPending}>
+              Create Client
+            </Button>
+            <Button type="button" variant="outline" onClick={() => navigate(-1)}>
+              Cancel
+            </Button>
           </div>
-        </section>
-
-        {/* Tags */}
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="text-base font-semibold text-gray-800">Tags</h2>
-          <Controller
-            name="tags"
-            control={control}
-            render={({ field }) => (
-              <TagInput
-                label="Tags"
-                value={field.value ?? []}
-                onChange={field.onChange}
-                placeholder="Type a tag and press Enter…"
-              />
-            )}
-          />
-        </section>
-
-        {/* Notes */}
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="text-base font-semibold text-gray-800">Additional Notes</h2>
-          <Textarea
-            label="Notes"
-            rows={3}
-            placeholder="Internal notes about this client…"
-            error={errors.notes?.message}
-            {...register("notes")}
-          />
-        </section>
-
-        {/* Custom Fields */}
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="text-base font-semibold text-gray-800">Custom Fields</h2>
-          <Controller
-            name="customFields"
-            control={control}
-            render={({ field }) => (
-              <CustomFieldsEditor
-                value={field.value ?? {}}
-                onChange={field.onChange}
-              />
-            )}
-          />
-        </section>
-
-        {/* Actions */}
-        <div className="flex items-center gap-3">
-          <Button type="submit" loading={isSubmitting || createClient.isPending}>
-            Create Client
-          </Button>
-          <Button type="button" variant="outline" onClick={() => navigate(-1)}>
-            Cancel
-          </Button>
-        </div>
-      </form>
+        </form>
+      </FormProvider>
     </div>
   );
 }

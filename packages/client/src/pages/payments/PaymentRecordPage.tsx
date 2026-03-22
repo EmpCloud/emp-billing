@@ -11,6 +11,7 @@ import { Button } from "@/components/common/Button";
 import { Input } from "@/components/common/Input";
 import { Select } from "@/components/common/Input";
 import { Textarea } from "@/components/common/Input";
+import { SearchableSelect } from "@/components/common/Input";
 import { PageHeader } from "@/components/common/PageHeader";
 
 // Adapt schema: amount in display units (rupees), not paise.
@@ -48,6 +49,7 @@ export function PaymentRecordPage() {
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(FormSchema),
@@ -58,6 +60,12 @@ export function PaymentRecordPage() {
   });
 
   const selectedClientId = watch("clientId");
+  const selectedMethod = watch("method");
+
+  const paymentMethodOptions = Object.entries(PAYMENT_METHOD_LABELS).map(([val, label]) => ({
+    value: val,
+    label,
+  }));
 
   const { data: invoicesData } = useInvoices(
     selectedClientId ? { clientId: selectedClientId } : undefined,
@@ -138,16 +146,15 @@ export function PaymentRecordPage() {
               {...register("date")}
             />
 
-            <Select
+            <SearchableSelect
               label="Payment Method"
               required
               error={errors.method?.message}
-              {...register("method")}
-            >
-              {Object.entries(PAYMENT_METHOD_LABELS).map(([val, label]) => (
-                <option key={val} value={val}>{label}</option>
-              ))}
-            </Select>
+              options={paymentMethodOptions}
+              value={selectedMethod}
+              onChange={(val) => setValue("method", val as PaymentMethod, { shouldValidate: true })}
+              placeholder="Select method..."
+            />
 
             <Input
               label="Reference"

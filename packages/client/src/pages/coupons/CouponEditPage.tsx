@@ -90,8 +90,8 @@ export function CouponEditPage() {
       value: values.type === CouponType.FIXED_AMOUNT
         ? Math.round(values.value * 100)
         : Math.round(values.value),
-      maxRedemptions: values.maxRedemptions ? Number(values.maxRedemptions) : undefined,
-      maxRedemptionsPerClient: values.maxRedemptionsPerClient ? Number(values.maxRedemptionsPerClient) : undefined,
+      maxRedemptions: values.maxRedemptions ? Number(values.maxRedemptions) : null,
+      maxRedemptionsPerClient: values.maxRedemptionsPerClient ? Number(values.maxRedemptionsPerClient) : null,
       validUntil: values.validUntil || undefined,
       productId: values.productId || undefined,
     };
@@ -247,7 +247,7 @@ export function CouponEditPage() {
               </label>
               <Input
                 type="number"
-                {...register("maxRedemptionsPerClient", { valueAsNumber: true })}
+                {...register("maxRedemptionsPerClient")}
                 placeholder="Unlimited"
                 min={1}
               />

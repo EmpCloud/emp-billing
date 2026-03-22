@@ -103,11 +103,21 @@ export function useImportClientsCSV() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (csv: string) =>
-      apiPost("/clients/import/csv", { csv }),
-    onSuccess: () => {
+      apiPost<{ imported: number; skipped: number; errors: string[] }>("/clients/import/csv", { csv }),
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: [CLIENTS_KEY] });
-      toast.success("Clients imported successfully");
+      const data = res.data;
+      if (data && data.imported > 0) {
+        toast.success(`Imported ${data.imported} client${data.imported === 1 ? "" : "s"}${data.skipped ? ` (${data.skipped} skipped)` : ""}`);
+      } else if (data && data.skipped > 0) {
+        toast.error(`No clients imported — ${data.skipped} row${data.skipped === 1 ? "" : "s"} skipped. ${data.errors?.[0] ?? ""}`);
+      } else {
+        toast.success("Clients imported successfully");
+      }
     },
-    onError: () => toast.error("Failed to import clients"),
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      toast.error(message || "Failed to import clients");
+    },
   });
 }

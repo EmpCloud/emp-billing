@@ -8,6 +8,7 @@ const index_1 = require("../types/index");
 // PRIMITIVES
 // ============================================================================
 const alphaWithSpaces = /^[A-Za-z\s\-'.]+$/;
+const phonePattern = /^\+?[\d\s\-().]+$/;
 exports.AddressSchema = zod_1.z.object({
     line1: zod_1.z.string().min(1, "Address line 1 is required"),
     line2: zod_1.z.string().optional(),
@@ -93,7 +94,7 @@ exports.UpdateOrgSchema = exports.CreateOrgSchema.partial();
 exports.ClientContactSchema = zod_1.z.object({
     name: zod_1.z.string().min(1).max(100),
     email: zod_1.z.string().email(),
-    phone: zod_1.z.string().optional(),
+    phone: zod_1.z.string().regex(phonePattern, "Phone must contain only numbers, spaces, and +/-(). characters").optional().or(zod_1.z.literal("")),
     designation: zod_1.z.string().optional(),
     isPrimary: zod_1.z.boolean().default(false),
 });
@@ -101,7 +102,7 @@ exports.CreateClientSchema = zod_1.z.object({
     name: zod_1.z.string().min(1, "Client name is required").max(100).refine((v) => !/^\d+$/.test(v.trim()), "Client name cannot be purely numeric"),
     displayName: zod_1.z.string().min(1).max(100),
     email: zod_1.z.string().email("Valid email required"),
-    phone: zod_1.z.string().optional(),
+    phone: zod_1.z.string().regex(phonePattern, "Phone must contain only numbers, spaces, and +/-(). characters").optional().or(zod_1.z.literal("")),
     website: zod_1.z.string().url().optional().or(zod_1.z.literal("")),
     taxId: zod_1.z.string().optional(),
     billingAddress: exports.AddressSchema.optional(),
@@ -450,7 +451,10 @@ exports.CreateCouponSchema = zod_1.z.object({
     validFrom: zod_1.z.coerce.date(),
     validUntil: zod_1.z.coerce.date().optional(),
 });
-exports.UpdateCouponSchema = exports.CreateCouponSchema.partial();
+exports.UpdateCouponSchema = exports.CreateCouponSchema.partial().extend({
+    maxRedemptions: zod_1.z.number().int().positive().nullable().optional(),
+    maxRedemptionsPerClient: zod_1.z.number().int().positive().nullable().optional(),
+});
 exports.ApplyCouponSchema = zod_1.z.object({
     code: zod_1.z.string().min(1, "Coupon code is required"),
     invoiceId: zod_1.z.string().uuid("Valid invoice ID required"),

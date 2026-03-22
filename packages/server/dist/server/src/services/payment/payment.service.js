@@ -274,6 +274,17 @@ async function getPaymentReceiptPdf(orgId, id) {
         if (inv)
             invoice = inv;
     }
-    return (0, pdf_1.generateReceiptPdf)({ payment: payment, org, client, invoice });
+    // Derive currency from invoice, org, or default to INR
+    const currency = invoice?.currency
+        ?? org.defaultCurrency
+        ?? "INR";
+    // Map payment fields to the names expected by the receipt template
+    const paymentData = {
+        ...payment,
+        paymentDate: payment.date,
+        referenceNumber: payment.reference ?? null,
+        currency,
+    };
+    return (0, pdf_1.generateReceiptPdf)({ payment: paymentData, org, client, invoice });
 }
 //# sourceMappingURL=payment.service.js.map

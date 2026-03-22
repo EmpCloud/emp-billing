@@ -79,7 +79,7 @@ async function deleteCoupon(req, res) {
 }
 async function validateCoupon(req, res) {
     const { code, amount, clientId } = req.body;
-    const result = await couponService.validateCoupon(req.user.orgId, code, amount ? Number(amount) : undefined, clientId);
+    const result = await couponService.validateCoupon(req.user.orgId, code, amount != null ? Number(amount) : undefined, clientId);
     res.json({ success: true, data: result });
 }
 async function applyCoupon(req, res) {

@@ -118,6 +118,9 @@ async function importClientsCSV(orgId, csvString) {
             }
             const now = new Date();
             const clientId = (0, uuid_1.v4)();
+            // Parse paymentTerms as integer (days) — default to 30 days
+            const rawTerms = row["paymentTerms"]?.trim();
+            const paymentTerms = rawTerms ? (parseInt(rawTerms, 10) || 30) : 30;
             await db.create("clients", {
                 id: clientId,
                 orgId,
@@ -127,7 +130,7 @@ async function importClientsCSV(orgId, csvString) {
                 phone: row["phone"]?.trim() || null,
                 taxId: row["taxId"]?.trim() || null,
                 currency: row["currency"]?.trim() || "USD",
-                paymentTerms: row["paymentTerms"]?.trim() || "net_30",
+                paymentTerms,
                 tags: JSON.stringify(tags),
                 billingAddress: Object.keys(billingAddress).length > 0
                     ? JSON.stringify(billingAddress)

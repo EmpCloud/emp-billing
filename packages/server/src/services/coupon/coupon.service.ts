@@ -63,7 +63,7 @@ export async function createCoupon(
   const db = await getDB();
 
   // Check for duplicate code within org
-  const existing = await db.findOne("coupons", { org_id: orgId, code: input.code });
+  const existing = await db.findOne("coupons", { org_id: orgId, code: input.code.toUpperCase() });
   if (existing) throw ConflictError(`A coupon with code '${input.code}' already exists`);
 
   // Validate percentage range

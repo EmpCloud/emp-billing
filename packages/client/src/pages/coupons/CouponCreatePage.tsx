@@ -230,7 +230,7 @@ export function CouponCreatePage() {
               </label>
               <Input
                 type="number"
-                {...register("maxRedemptionsPerClient", { valueAsNumber: true })}
+                {...register("maxRedemptionsPerClient")}
                 placeholder="Unlimited"
                 min={1}
               />

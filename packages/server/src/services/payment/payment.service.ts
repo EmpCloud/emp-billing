@@ -317,5 +317,18 @@ export async function getPaymentReceiptPdf(orgId: string, id: string): Promise<B
     if (inv) invoice = inv;
   }
 
-  return generateReceiptPdf({ payment: payment as unknown as Record<string, unknown>, org, client, invoice });
+  // Derive currency from invoice, org, or default to INR
+  const currency = (invoice?.currency as string)
+    ?? (org.defaultCurrency as string)
+    ?? "INR";
+
+  // Map payment fields to the names expected by the receipt template
+  const paymentData: Record<string, unknown> = {
+    ...(payment as unknown as Record<string, unknown>),
+    paymentDate: payment.date,
+    referenceNumber: payment.reference ?? null,
+    currency,
+  };
+
+  return generateReceiptPdf({ payment: paymentData, org, client, invoice });
 }

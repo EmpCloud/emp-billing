@@ -224,11 +224,13 @@ async function updateQuote(orgId, id, input) {
         updateData.notes = input.notes;
     if (input.terms !== undefined)
         updateData.terms = input.terms;
-    if (input.expiryDate)
+    if (input.issueDate !== undefined)
+        updateData.issueDate = input.issueDate;
+    if (input.expiryDate !== undefined)
         updateData.expiryDate = input.expiryDate;
-    if (input.clientId)
+    if (input.clientId !== undefined)
         updateData.clientId = input.clientId;
-    if (input.currency)
+    if (input.currency !== undefined)
         updateData.currency = input.currency;
     // Increment version
     updateData.version = (existing.version ?? 1) + 1;

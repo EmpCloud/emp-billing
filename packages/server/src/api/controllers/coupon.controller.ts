@@ -45,7 +45,7 @@ export async function validateCoupon(req: Request, res: Response): Promise<void>
   const result = await couponService.validateCoupon(
     req.user!.orgId,
     code,
-    amount ? Number(amount) : undefined,
+    amount != null ? Number(amount) : undefined,
     clientId
   );
   res.json({ success: true, data: result });
