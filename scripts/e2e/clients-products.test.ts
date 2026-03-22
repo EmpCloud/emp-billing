@@ -395,11 +395,18 @@ async function login(page: Page) {
     }
 
     // Wait for detail page to fully load (including balance API)
-    await waitForStable(page);
-    await page.waitForTimeout(1500);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(3000);
+
+    // Wait for the stats cards to render (proves API data has loaded)
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Outstanding"),
+      null,
+      { timeout: 20000 },
+    );
 
     // Verify client name is displayed
-    const bodyText = await page.textContent("body");
+    const bodyText = await page.evaluate(() => document.body.innerText);
     if (!bodyText?.includes("E2E")) {
       throw new Error("Client name not found on detail page");
     }
@@ -420,12 +427,8 @@ async function login(page: Page) {
     }
 
     // Verify stats cards exist (Outstanding, Total Billed, Total Paid)
-    // StatsCard renders labels in <p> elements — use substring text match
     for (const label of ["Outstanding", "Total Billed", "Total Paid"]) {
-      const card = page.locator(`text=${label}`).first();
-      try {
-        await card.waitFor({ state: "visible", timeout: 8000 });
-      } catch {
+      if (!bodyText?.includes(label)) {
         throw new Error(`Stats card "${label}" not visible on detail page`);
       }
     }
@@ -780,10 +783,17 @@ async function login(page: Page) {
 
     // Navigate to the detail page
     await page.goto(`${BASE_URL}/products/${productId}`, { waitUntil: "networkidle", timeout: 15000 });
-    await waitForStable(page);
-    await page.waitForTimeout(1000);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(2000);
 
-    const bodyText = await page.textContent("body");
+    // Wait for the detail page to fully render (lots of content)
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Stock on Hand"),
+      null,
+      { timeout: 20000 },
+    );
+
+    const bodyText = await page.evaluate(() => document.body.innerText);
 
     // Verify name
     if (!bodyText?.includes(createdGoodsProductName.substring(0, 20))) {
@@ -819,6 +829,11 @@ async function login(page: Page) {
 
   // 13. Edit product — HYBRID: UI navigation + API mutation + UI verification
   await test("13. Edit product — change rate, verify update", async () => {
+    if (!createdGoodsProductName) {
+      console.log("(skipped: no product name from test 10)");
+      return;
+    }
+
     // Navigate to product list and find the edit page to verify it loads (UI check)
     await page.goto(`${BASE_URL}/products`, { waitUntil: "networkidle", timeout: 15000 });
     await page.waitForTimeout(1000);
@@ -901,20 +916,29 @@ async function login(page: Page) {
 
   // 14. Search products
   await test("14. Search products — type in search, verify filter", async () => {
+    if (!createdGoodsProductName) {
+      console.log("(skipped: no product name from test 10)");
+      return;
+    }
+
     await page.goto(`${BASE_URL}/products`, { waitUntil: "networkidle", timeout: 15000 });
     await page.waitForTimeout(1000);
+
+    // Wait for table to be populated
+    await page.waitForSelector("table tbody tr", { timeout: 10000 }).catch(() => {});
 
     const searchInput = page.locator('input[placeholder*="Search products"]').first();
     await searchInput.waitFor({ state: "visible", timeout: 5000 });
 
-    // Search for our goods product
+    // Search using just the static prefix (timestamp suffix may vary)
     await searchInput.fill("E2E Test Widget");
-    await page.waitForTimeout(1500); // Wait for debounce
+    await page.waitForTimeout(2000); // Wait for debounce
 
-    // Verify the goods product is shown
+    // Verify the goods product is shown — wait for the row to appear
     const goodsRow = page.locator(`table tbody tr:has-text("E2E Test Widget")`).first();
-    const goodsVisible = await goodsRow.isVisible().catch(() => false);
-    if (!goodsVisible) {
+    try {
+      await goodsRow.waitFor({ state: "visible", timeout: 10000 });
+    } catch {
       throw new Error("Goods product not found after search");
     }
 

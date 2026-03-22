@@ -944,10 +944,13 @@ async function waitForToast(page: Page, text: string, timeout = 8000) {
     // Wait for the specific vendor API response
     await responsePromise.catch(() => {});
 
-    // Wait for the vendor detail page to fully render with data
+    // Wait for the vendor detail page to fully render with actual data (not just shell)
     await page.waitForFunction(
-      () => document.body.innerText.includes("Contact Information"),
-      null,
+      (companyName) => {
+        const text = document.body.innerText;
+        return text.includes("Contact Information") && text.includes(companyName);
+      },
+      "E2E Vendor Corp",
       { timeout: 30000 },
     );
     await page.waitForTimeout(2000);
