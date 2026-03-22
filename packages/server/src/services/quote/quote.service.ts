@@ -370,11 +370,9 @@ export async function convertToInvoice(orgId: string, id: string, userId: string
   );
 
   // Update client totals
-  await db.update("clients", quote.clientId, {
-    totalBilled: db.increment("clients", quote.clientId, "total_billed", quote.total),
-    outstandingBalance: db.increment("clients", quote.clientId, "outstanding_balance", quote.total),
-    updatedAt: now,
-  }, orgId);
+  await db.increment("clients", quote.clientId, "total_billed", quote.total);
+  await db.increment("clients", quote.clientId, "outstanding_balance", quote.total);
+  await db.update("clients", quote.clientId, { updatedAt: now }, orgId);
 
   // Mark quote as converted
   await db.update("quotes", id, {

@@ -193,11 +193,8 @@ export async function createInvoice(
   );
 
   // Update client totals
-  await db.update("clients", input.clientId, {
-    totalBilled: db.increment("clients", input.clientId, "total_billed", totals.total),
-    outstandingBalance: db.increment("clients", input.clientId, "outstanding_balance", totals.total),
-    updatedAt: now,
-  }, orgId);
+  await db.increment("clients", input.clientId, "total_billed", totals.total);
+  await db.increment("clients", input.clientId, "outstanding_balance", totals.total);
 
   // Reduce inventory for products with trackInventory enabled
   for (const item of computedItems) {
@@ -460,6 +457,9 @@ export async function duplicateInvoice(orgId: string, id: string, userId: string
       id: uuid(),
       invoiceId: newId,
       orgId,
+      taxComponents: item.taxComponents
+        ? (typeof item.taxComponents === "string" ? item.taxComponents : JSON.stringify(item.taxComponents))
+        : null,
     }))
   );
 
@@ -484,15 +484,7 @@ export async function voidInvoice(orgId: string, id: string): Promise<Invoice> {
   // Reverse client outstanding balance (only unbilled portion)
   const outstanding = invoice.total - invoice.amountPaid;
   if (outstanding > 0) {
-    await db.update(
-      "clients",
-      invoice.clientId,
-      {
-        outstandingBalance: await db.increment("clients", invoice.clientId, "outstanding_balance", -outstanding),
-        updatedAt: now,
-      },
-      orgId
-    );
+    await db.increment("clients", invoice.clientId, "outstanding_balance", -outstanding);
   }
 
   return db.update<Invoice>("invoices", id, { status: InvoiceStatus.VOID, updatedAt: now }, orgId);
@@ -512,10 +504,7 @@ export async function writeOffInvoice(orgId: string, id: string): Promise<Invoic
   const now = new Date();
   const outstanding = invoice.total - invoice.amountPaid;
   if (outstanding > 0) {
-    await db.update("clients", invoice.clientId, {
-      outstandingBalance: await db.increment("clients", invoice.clientId, "outstanding_balance", -outstanding),
-      updatedAt: now,
-    }, orgId);
+    await db.increment("clients", invoice.clientId, "outstanding_balance", -outstanding);
   }
 
   return db.update<Invoice>("invoices", id, { status: InvoiceStatus.WRITTEN_OFF, updatedAt: now }, orgId);

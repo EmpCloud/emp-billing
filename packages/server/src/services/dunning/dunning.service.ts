@@ -296,26 +296,9 @@ export async function processDunningAttempt(attemptId: string, orgId?: string): 
     }, attempt.orgId);
 
     // Update client balances
-    await db.update(
-      "clients",
-      invoice.clientId,
-      {
-        totalPaid: await db.increment(
-          "clients",
-          invoice.clientId,
-          "total_paid",
-          invoice.amountDue,
-        ),
-        outstandingBalance: await db.increment(
-          "clients",
-          invoice.clientId,
-          "outstanding_balance",
-          -invoice.amountDue,
-        ),
-        updatedAt: now,
-      },
-      attempt.orgId,
-    );
+    await db.increment("clients", invoice.clientId, "total_paid", invoice.amountDue);
+    await db.increment("clients", invoice.clientId, "outstanding_balance", -invoice.amountDue);
+    await db.update("clients", invoice.clientId, { updatedAt: now }, attempt.orgId);
 
     logger.info("Dunning attempt succeeded", {
       attemptId,

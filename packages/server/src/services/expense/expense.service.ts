@@ -284,11 +284,9 @@ export async function billExpenseToClient(
   });
 
   // Update client totals
-  await db.update("clients", existing.clientId, {
-    totalBilled: db.increment("clients", existing.clientId, "total_billed", total),
-    outstandingBalance: db.increment("clients", existing.clientId, "outstanding_balance", total),
-    updatedAt: now,
-  }, orgId);
+  await db.increment("clients", existing.clientId, "total_billed", total);
+  await db.increment("clients", existing.clientId, "outstanding_balance", total);
+  await db.update("clients", existing.clientId, { updatedAt: now }, orgId);
 
   // Update expense status to BILLED and link the invoice
   await db.update(

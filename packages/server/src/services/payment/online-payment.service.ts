@@ -343,26 +343,9 @@ async function recordGatewayPayment(
   );
 
   // Update client balances
-  await db.update(
-    "clients",
-    invoice.clientId,
-    {
-      totalPaid: await db.increment(
-        "clients",
-        invoice.clientId,
-        "total_paid",
-        amount
-      ),
-      outstandingBalance: await db.increment(
-        "clients",
-        invoice.clientId,
-        "outstanding_balance",
-        -amount
-      ),
-      updatedAt: now,
-    },
-    orgId
-  );
+  await db.increment("clients", invoice.clientId, "total_paid", amount);
+  await db.increment("clients", invoice.clientId, "outstanding_balance", -amount);
+  await db.update("clients", invoice.clientId, { updatedAt: now }, orgId);
 
   return payment;
 }

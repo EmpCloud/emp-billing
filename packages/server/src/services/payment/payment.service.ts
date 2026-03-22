@@ -168,11 +168,9 @@ export async function recordPayment(
   }
 
   // Update client balances
-  await db.update("clients", input.clientId, {
-    totalPaid: await db.increment("clients", input.clientId, "total_paid", input.amount),
-    outstandingBalance: await db.increment("clients", input.clientId, "outstanding_balance", -input.amount),
-    updatedAt: now,
-  }, orgId);
+  await db.increment("clients", input.clientId, "total_paid", input.amount);
+  await db.increment("clients", input.clientId, "outstanding_balance", -input.amount);
+  await db.update("clients", input.clientId, { updatedAt: now }, orgId);
 
   return { ...payment, creditNote };
 }
@@ -224,11 +222,9 @@ export async function refundPayment(
   }, orgId);
 
   // Reverse client balances
-  await db.update("clients", payment.clientId, {
-    totalPaid: await db.increment("clients", payment.clientId, "total_paid", -input.amount),
-    outstandingBalance: await db.increment("clients", payment.clientId, "outstanding_balance", input.amount),
-    updatedAt: now,
-  }, orgId);
+  await db.increment("clients", payment.clientId, "total_paid", -input.amount);
+  await db.increment("clients", payment.clientId, "outstanding_balance", input.amount);
+  await db.update("clients", payment.clientId, { updatedAt: now }, orgId);
 
   return refund;
 }
@@ -270,11 +266,9 @@ export async function deletePayment(orgId: string, id: string): Promise<void> {
   await db.deleteMany("payment_allocations", { payment_id: id });
 
   // Reverse client
-  await db.update("clients", payment.clientId, {
-    totalPaid: await db.increment("clients", payment.clientId, "total_paid", -payment.amount),
-    outstandingBalance: await db.increment("clients", payment.clientId, "outstanding_balance", payment.amount),
-    updatedAt: new Date(),
-  }, orgId);
+  await db.increment("clients", payment.clientId, "total_paid", -payment.amount);
+  await db.increment("clients", payment.clientId, "outstanding_balance", payment.amount);
+  await db.update("clients", payment.clientId, { updatedAt: new Date() }, orgId);
 
   await db.delete("payments", id, orgId);
 }
