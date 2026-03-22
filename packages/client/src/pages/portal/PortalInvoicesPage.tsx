@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { FileText, Download, CreditCard } from "lucide-react";
+import { FileText, Download, CreditCard, CheckCircle, XCircle } from "lucide-react";
 import {
   usePortalInvoices,
   useDownloadPortalInvoicePdf,
   usePortalPaymentGateways,
+  usePortalPay,
   usePortalCreatePayment,
 } from "@/api/hooks/portal.hooks";
 import { InvoiceStatusBadge } from "@/components/common/Badge";
@@ -51,6 +52,55 @@ const PAYABLE_STATUSES: InvoiceStatus[] = [
   InvoiceStatus.OVERDUE,
 ];
 
+// ── Payment Result Banner ──────────────────────────────────────────────────
+// Shown when the user returns from a hosted gateway (Stripe Checkout, etc.)
+
+function PaymentSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className="rounded-xl border border-green-200 bg-green-50 p-6 text-center space-y-3">
+      <div className="flex justify-center">
+        <div className="rounded-full bg-green-100 p-3">
+          <CheckCircle className="h-8 w-8 text-green-600" />
+        </div>
+      </div>
+      <h2 className="text-lg font-semibold text-green-900">Payment Successful</h2>
+      <p className="text-sm text-green-700 max-w-md mx-auto">
+        Your payment has been received. The invoice status will be updated shortly once the
+        payment is confirmed by our payment processor.
+      </p>
+      <div className="pt-2">
+        <Button variant="outline" size="sm" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PaymentCancelledBanner({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center space-y-3">
+      <div className="flex justify-center">
+        <div className="rounded-full bg-amber-100 p-3">
+          <XCircle className="h-8 w-8 text-amber-600" />
+        </div>
+      </div>
+      <h2 className="text-lg font-semibold text-amber-900">Payment Cancelled</h2>
+      <p className="text-sm text-amber-700 max-w-md mx-auto">
+        Your payment was not completed. No charge has been made. You can try again anytime by
+        clicking the "Pay Now" button on your invoice.
+      </p>
+      <div className="pt-2">
+        <Button variant="outline" size="sm" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Gateway Selector Modal ─────────────────────────────────────────────────
+
 function PayNowModal({
   invoice,
   open,
@@ -62,8 +112,21 @@ function PayNowModal({
 }) {
   const { data: gatewaysRes, isLoading: gatewaysLoading } = usePortalPaymentGateways();
   const createPayment = usePortalCreatePayment();
+  const { pay, isPending } = usePortalPay();
 
   const gateways = (gatewaysRes?.data ?? []) as Array<{ name: string; displayName: string }>;
+
+  // Auto-select if only one gateway is configured
+  const [autoTriggered, setAutoTriggered] = useState(false);
+  useEffect(() => {
+    if (!gatewaysLoading && gateways.length === 1 && open && !autoTriggered && !isPending) {
+      setAutoTriggered(true);
+      handlePay(gateways[0].name);
+    }
+    // Reset auto-trigger flag when modal closes
+    if (!open) setAutoTriggered(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gatewaysLoading, gateways.length, open]);
 
   const handlePay = async (gatewayName: string) => {
     try {
@@ -104,7 +167,6 @@ function PayNowModal({
       }
 
       // Fallback: the order was created but there's no redirect URL or client SDK.
-      // This can happen if Razorpay SDK is not loaded on the page.
       toast.success(
         `Payment order created (ID: ${order.gatewayOrderId}). Please complete payment on the gateway.`
       );
@@ -113,6 +175,18 @@ function PayNowModal({
       // Error toast is already handled by the mutation's onError
     }
   };
+
+  // If auto-selecting single gateway, show a loading state instead of the full modal
+  if (gateways.length === 1 && (isPending || createPayment.isPending)) {
+    return (
+      <Modal open={open} onClose={onClose} title="Pay Invoice" size="sm">
+        <div className="flex flex-col items-center justify-center py-8 space-y-3">
+          <Spinner size="lg" className="text-brand-600" />
+          <p className="text-sm text-gray-500">Redirecting to payment...</p>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal open={open} onClose={onClose} title="Pay Invoice" size="sm">
@@ -176,6 +250,47 @@ function PayNowModal({
   );
 }
 
+// ── Pay Now Button (inline, for single-gateway shortcut) ───────────────────
+
+function PayNowButton({
+  invoice,
+  onOpenModal,
+}: {
+  invoice: Invoice;
+  onOpenModal: () => void;
+}) {
+  const { data: gatewaysRes, isLoading: gatewaysLoading } = usePortalPaymentGateways();
+  const { pay, isPending } = usePortalPay();
+
+  const gateways = (gatewaysRes?.data ?? []) as Array<{ name: string; displayName: string }>;
+
+  const handleClick = async () => {
+    // If still loading gateways or multiple gateways, open the modal
+    if (gatewaysLoading || gateways.length !== 1) {
+      onOpenModal();
+      return;
+    }
+
+    // Single gateway: pay directly without opening modal
+    await pay(invoice.id, gateways[0].name);
+  };
+
+  return (
+    <Button
+      variant="primary"
+      size="sm"
+      onClick={handleClick}
+      loading={isPending}
+      disabled={isPending}
+      icon={<CreditCard className="h-3.5 w-3.5" />}
+    >
+      Pay Now
+    </Button>
+  );
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────
+
 export function PortalInvoicesPage() {
   const [page, setPage] = useState(1);
   const { data: res, isLoading } = usePortalInvoices({ page, limit: 20 });
@@ -183,17 +298,22 @@ export function PortalInvoicesPage() {
 
   const [payInvoice, setPayInvoice] = useState<Invoice | null>(null);
 
-  // Show toast when returning from Stripe Checkout (or any hosted gateway)
+  // Payment result from gateway redirect
+  const paymentStatus = searchParams.get("payment");
+  const [showBanner, setShowBanner] = useState<"success" | "cancelled" | null>(null);
+
   useEffect(() => {
-    const paymentStatus = searchParams.get("payment");
     if (paymentStatus === "success") {
-      toast.success("Payment completed successfully! Your invoice will be updated shortly.");
+      setShowBanner("success");
+      // Clean up query params (keep the banner visible until dismissed)
       setSearchParams({}, { replace: true });
     } else if (paymentStatus === "cancelled") {
-      toast("Payment was cancelled.", { icon: "\u26A0\uFE0F" });
+      setShowBanner("cancelled");
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, setSearchParams]);
+  }, [paymentStatus, setSearchParams]);
+
+  const dismissBanner = () => setShowBanner(null);
 
   const invoices = (res?.data ?? []) as Invoice[];
   const meta = res?.meta;
@@ -212,6 +332,10 @@ export function PortalInvoicesPage() {
         <FileText className="h-5 w-5 text-gray-400" />
         <h1 className="text-xl font-bold text-gray-900">My Invoices</h1>
       </div>
+
+      {/* Payment result banners */}
+      {showBanner === "success" && <PaymentSuccessBanner onDismiss={dismissBanner} />}
+      {showBanner === "cancelled" && <PaymentCancelledBanner onDismiss={dismissBanner} />}
 
       {invoices.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm py-16 text-center">
@@ -251,14 +375,10 @@ export function PortalInvoicesPage() {
                     <td className="px-5 py-3 text-right">
                       <div className="inline-flex items-center gap-1">
                         {PAYABLE_STATUSES.includes(inv.status) && inv.amountDue > 0 && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => setPayInvoice(inv)}
-                            icon={<CreditCard className="h-3.5 w-3.5" />}
-                          >
-                            Pay Now
-                          </Button>
+                          <PayNowButton
+                            invoice={inv}
+                            onOpenModal={() => setPayInvoice(inv)}
+                          />
                         )}
                         <DownloadPdfButton invoiceId={inv.id} />
                       </div>
@@ -298,7 +418,7 @@ export function PortalInvoicesPage() {
         </div>
       )}
 
-      {/* Pay Now Modal */}
+      {/* Pay Now Modal (shown when multiple gateways or gateway list still loading) */}
       {payInvoice && (
         <PayNowModal
           invoice={payInvoice}

@@ -2,6 +2,14 @@ import type { Request, Response } from "express";
 import * as portalService from "../../services/portal/portal.service";
 import * as disputeService from "../../services/dispute/dispute.service";
 
+// ── Branding (public, no auth required) ──────────────────────────────────
+
+export async function getPortalBranding(req: Request, res: Response): Promise<void> {
+  const domainOrgId = req.domainOrg?.orgId;
+  const branding = await portalService.getPortalBranding(domainOrgId);
+  res.json({ success: true, data: branding });
+}
+
 // ── Login (no auth required) ──────────────────────────────────────────────
 
 export async function portalLogin(req: Request, res: Response): Promise<void> {

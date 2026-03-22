@@ -43,6 +43,7 @@ import { couponRoutes } from "./api/routes/coupon.routes";
 import { dunningRoutes } from "./api/routes/dunning.routes";
 import { metricsRoutes } from "./api/routes/metrics.routes";
 import { domainRoutes } from "./api/routes/domain.routes";
+import { apiKeyRoutes } from "./api/routes/api-key.routes";
 import { domainResolution } from "./api/middleware/domain.middleware";
 import { registerListeners } from "./events/listeners";
 import { startWorkers } from "./jobs/index";
@@ -115,6 +116,7 @@ v1.use("/usage",        usageRoutes);
 v1.use("/coupons",      couponRoutes);
 v1.use("/dunning",      dunningRoutes);
 v1.use("/metrics",      metricsRoutes);
+v1.use("/api-keys",     apiKeyRoutes);
 
 app.use("/api/v1", v1);
 

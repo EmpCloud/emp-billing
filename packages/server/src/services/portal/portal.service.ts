@@ -62,6 +62,60 @@ function generatePortalJwt(clientId: string, orgId: string): string {
   );
 }
 
+// ── Branding (public, no auth) ────────────────────────────────────────────
+
+export interface PortalBrandingResult {
+  orgName: string;
+  logo: string | null;
+  primaryColor: string | null;
+  email: string | null;
+  website: string | null;
+}
+
+const DEFAULT_BRANDING: PortalBrandingResult = {
+  orgName: "EMP Billing",
+  logo: null,
+  primaryColor: null,
+  email: null,
+  website: null,
+};
+
+export async function getPortalBranding(domainOrgId?: string): Promise<PortalBrandingResult> {
+  if (!domainOrgId) {
+    return DEFAULT_BRANDING;
+  }
+
+  const db = await getDB();
+  const org = await db.findById<{
+    id: string;
+    name: string;
+    brandColors?: string | { primary: string; accent: string };
+    logo?: string;
+    email?: string;
+    website?: string;
+  }>("organizations", domainOrgId);
+
+  if (!org) {
+    return DEFAULT_BRANDING;
+  }
+
+  // Parse brandColors if stored as JSON string
+  let brandColors: { primary?: string; accent?: string } | undefined;
+  if (typeof org.brandColors === "string") {
+    try { brandColors = JSON.parse(org.brandColors); } catch { /* ignore */ }
+  } else if (org.brandColors) {
+    brandColors = org.brandColors;
+  }
+
+  return {
+    orgName: org.name,
+    logo: org.logo ?? null,
+    primaryColor: brandColors?.primary ?? null,
+    email: org.email ?? null,
+    website: org.website ?? null,
+  };
+}
+
 // ── Login ──────────────────────────────────────────────────────────────────
 
 export async function portalLogin(email: string, token: string, domainOrgId?: string): Promise<PortalLoginResult> {

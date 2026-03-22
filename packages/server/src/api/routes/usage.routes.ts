@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/auth.middleware";
-import { requireAccountant } from "../middleware/rbac.middleware";
+import { requireAccountant, requireAdmin } from "../middleware/rbac.middleware";
 import { asyncHandler } from "../middleware/error.middleware";
 import { validateBody } from "../middleware/validate.middleware";
 import { CreateUsageRecordSchema, ReportUsageSchema, GenerateUsageInvoiceSchema } from "@emp-billing/shared";
@@ -17,5 +17,8 @@ router.get("/summary",           asyncHandler(usageController.getUsageSummary));
 // Simplified usage reporting for SaaS integrations
 router.post("/report",           requireAccountant, validateBody(ReportUsageSchema),              asyncHandler(usageController.reportUsage));
 router.post("/generate-invoice", requireAccountant, validateBody(GenerateUsageInvoiceSchema),     asyncHandler(usageController.generateUsageInvoice));
+
+// Admin-only: manually trigger usage billing for all clients/subscriptions
+router.post("/generate-all-invoices", requireAdmin, asyncHandler(usageController.generateAllUsageInvoices));
 
 export { router as usageRoutes };

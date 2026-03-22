@@ -660,6 +660,30 @@ export interface AuthUser {
   orgName: string;
   firstName: string;
   lastName: string;
+  apiKeyId?: string;
+  apiKeyScopes?: string[] | null;
+}
+
+// ---------------------------------------------------------------------------
+// API Key
+// ---------------------------------------------------------------------------
+
+export interface ApiKey {
+  id: string;
+  orgId: string;
+  name: string;
+  keyPrefix: string;
+  scopes: string[] | null;
+  lastUsedAt: Date | null;
+  expiresAt: Date | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ApiKeyCreateResult {
+  apiKey: ApiKey;
+  rawKey: string;
 }
 
 // ---------------------------------------------------------------------------

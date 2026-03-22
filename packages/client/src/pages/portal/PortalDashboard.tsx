@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { FileText, CreditCard, Receipt } from "lucide-react";
 import { usePortalDashboard } from "@/api/hooks/portal.hooks";
 import { usePortalStore } from "@/store/portal.store";
+import { usePortalBranding } from "@/api/hooks/portal-branding.hooks";
 import { StatsCard } from "@/components/common/StatsCard";
 import { InvoiceStatusBadge } from "@/components/common/Badge";
 import { Spinner } from "@/components/common/Spinner";
@@ -10,7 +11,9 @@ import dayjs from "dayjs";
 import type { Invoice, Payment } from "@emp-billing/shared";
 
 export function PortalDashboard() {
-  const { clientName } = usePortalStore();
+  const { clientName, orgName: storeOrgName } = usePortalStore();
+  const { data: branding } = usePortalBranding();
+  const orgName = storeOrgName || branding?.orgName || "EMP Billing";
   const { data: res, isLoading } = usePortalDashboard();
 
   if (isLoading) {
@@ -39,7 +42,7 @@ export function PortalDashboard() {
           Welcome{clientName ? `, ${clientName}` : ""}
         </h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          {dayjs().format("dddd, D MMMM YYYY")}
+          {orgName} &middot; {dayjs().format("dddd, D MMMM YYYY")}
         </p>
       </div>
 

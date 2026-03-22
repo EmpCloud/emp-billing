@@ -2,6 +2,7 @@ import { Outlet, NavLink, Navigate, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 import { LayoutDashboard, FileText, Receipt, CreditCard, LogOut, FileMinus, Calendar, AlertTriangle, Repeat, Wallet } from "lucide-react";
 import { usePortalStore } from "@/store/portal.store";
+import { usePortalBranding } from "@/api/hooks/portal-branding.hooks";
 
 const PORTAL_NAV = [
   { label: "Dashboard",    href: "/portal",               icon: LayoutDashboard },
@@ -23,8 +24,15 @@ function getOrgInitials(name: string | null): string {
 }
 
 export function PortalLayout() {
-  const { isPortalAuthenticated, orgName, clientName, brandPrimary, logoUrl, clearPortalAuth } = usePortalStore();
+  const store = usePortalStore();
+  const { data: branding } = usePortalBranding();
   const location = useLocation();
+
+  // Merge branding: authenticated store values take priority, fall back to public branding API
+  const orgName = store.orgName || branding?.orgName || "EMP Billing";
+  const logoUrl = store.logoUrl || branding?.logo || null;
+  const brandPrimary = store.brandPrimary || branding?.primaryColor || null;
+  const { isPortalAuthenticated, clientName, clearPortalAuth } = store;
 
   // Allow unauthenticated access to /portal/login
   const isLoginPage = location.pathname === "/portal/login";
@@ -53,7 +61,7 @@ export function PortalLayout() {
               {logoUrl ? (
                 <img
                   src={logoUrl}
-                  alt={orgName ?? "Logo"}
+                  alt={orgName}
                   className="w-8 h-8 rounded-lg object-contain flex-shrink-0"
                 />
               ) : (

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { Building2, Hash, Palette, Percent, Plus, Pencil, Trash2, CreditCard, Mail, Info, FileText, AlertCircle, Clock, Calendar, Globe, CheckCircle2, XCircle, ShieldCheck, Loader2 } from "lucide-react";
+import { Building2, Hash, Palette, Percent, Plus, Pencil, Trash2, CreditCard, Mail, Info, FileText, AlertCircle, Clock, Calendar, Globe, CheckCircle2, XCircle, ShieldCheck, Loader2, Key, Copy, Eye, EyeOff } from "lucide-react";
 import {
   useOrgSettings,
   useUpdateOrgSettings,
@@ -39,9 +39,14 @@ import {
   useRemoveDomain,
   useVerifyDomain,
 } from "@/api/hooks/domain.hooks";
-import type { TaxRate, TaxComponent, ScheduledReport, CustomDomain } from "@emp-billing/shared";
+import {
+  useApiKeys,
+  useCreateApiKey,
+  useRevokeApiKey,
+} from "@/api/hooks/api-key.hooks";
+import type { TaxRate, TaxComponent, ScheduledReport, CustomDomain, ApiKey } from "@emp-billing/shared";
 
-type SettingsTab = "organization" | "numbering" | "branding" | "tax-rates" | "gateways" | "email" | "scheduled-reports" | "dunning" | "domains";
+type SettingsTab = "organization" | "numbering" | "branding" | "tax-rates" | "gateways" | "email" | "scheduled-reports" | "dunning" | "domains" | "api-keys";
 
 const TABS: { key: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { key: "organization", label: "Organization", icon: <Building2 className="h-4 w-4" /> },
@@ -53,6 +58,7 @@ const TABS: { key: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { key: "scheduled-reports", label: "Scheduled Reports", icon: <Calendar className="h-4 w-4" /> },
   { key: "dunning", label: "Dunning", icon: <AlertCircle className="h-4 w-4" /> },
   { key: "domains", label: "Domains", icon: <Globe className="h-4 w-4" /> },
+  { key: "api-keys", label: "API Keys", icon: <Key className="h-4 w-4" /> },
 ];
 
 const CURRENCIES = [
@@ -1834,6 +1840,244 @@ function DomainsTab() {
   );
 }
 
+// ---------- API Keys Tab ----------
+
+function ApiKeysTab() {
+  const { data, isLoading } = useApiKeys();
+  const createKey = useCreateApiKey();
+  const revokeKey = useRevokeApiKey();
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyScopes, setNewKeyScopes] = useState("");
+  const [newKeyExpiry, setNewKeyExpiry] = useState("");
+  const [createdRawKey, setCreatedRawKey] = useState<string | null>(null);
+  const [showRawKey, setShowRawKey] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const keys: ApiKey[] = data?.data ?? [];
+
+  function handleCreate() {
+    const scopes = newKeyScopes.trim()
+      ? newKeyScopes.split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
+    createKey.mutate(
+      {
+        name: newKeyName,
+        scopes,
+        expiresAt: newKeyExpiry || undefined,
+      },
+      {
+        onSuccess: (res) => {
+          const result = res.data;
+          if (result?.rawKey) {
+            setCreatedRawKey(result.rawKey);
+            setShowRawKey(true);
+          }
+          setNewKeyName("");
+          setNewKeyScopes("");
+          setNewKeyExpiry("");
+        },
+      }
+    );
+  }
+
+  function handleCopy() {
+    if (createdRawKey) {
+      navigator.clipboard.writeText(createdRawKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  function closeCreateModal() {
+    setShowCreateModal(false);
+    setCreatedRawKey(null);
+    setShowRawKey(false);
+    setCopied(false);
+    setNewKeyName("");
+    setNewKeyScopes("");
+    setNewKeyExpiry("");
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-800">API Keys</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Create API keys for server-to-server integrations. Keys use the <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">Authorization: Bearer empb_live_...</code> header.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setShowCreateModal(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Create API Key
+          </Button>
+        </div>
+
+        {keys.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <Key className="h-10 w-10 mx-auto mb-2 opacity-50" />
+            <p>No API keys yet</p>
+            <p className="text-xs mt-1">Create one to enable server-to-server API access</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Name</th>
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Key Prefix</th>
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Scopes</th>
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Last Used</th>
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Expires</th>
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Status</th>
+                  <th className="text-right py-2 px-3 text-gray-500 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {keys.map((k) => (
+                  <tr key={k.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-2.5 px-3 font-medium text-gray-800">{k.name}</td>
+                    <td className="py-2.5 px-3">
+                      <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{k.keyPrefix}...</code>
+                    </td>
+                    <td className="py-2.5 px-3 text-gray-600">
+                      {k.scopes && k.scopes.length > 0
+                        ? k.scopes.join(", ")
+                        : <span className="text-gray-400">All</span>}
+                    </td>
+                    <td className="py-2.5 px-3 text-gray-500">
+                      {k.lastUsedAt
+                        ? new Date(k.lastUsedAt).toLocaleDateString()
+                        : <span className="text-gray-300">Never</span>}
+                    </td>
+                    <td className="py-2.5 px-3 text-gray-500">
+                      {k.expiresAt
+                        ? new Date(k.expiresAt).toLocaleDateString()
+                        : <span className="text-gray-300">Never</span>}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      {k.isActive ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                          <CheckCircle2 className="h-3 w-3" /> Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
+                          <XCircle className="h-3 w-3" /> Revoked
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      {k.isActive && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            if (confirm("Revoke this API key? This cannot be undone.")) {
+                              revokeKey.mutate(k.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-1" /> Revoke
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Create API Key Modal */}
+      <Modal open={showCreateModal} onClose={closeCreateModal} title={createdRawKey ? "API Key Created" : "Create API Key"}>
+        {createdRawKey ? (
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium">Save this key now</p>
+                  <p className="mt-1">This is the only time you will see the full API key. Store it securely.</p>
+                </div>
+              </div>
+            </div>
+            <div className="relative">
+              <div className="bg-gray-900 text-green-400 font-mono text-sm p-3 rounded-lg pr-20 break-all">
+                {showRawKey ? createdRawKey : createdRawKey.slice(0, 12) + "..." + "*".repeat(20)}
+              </div>
+              <div className="absolute top-2 right-2 flex gap-1">
+                <button
+                  onClick={() => setShowRawKey(!showRawKey)}
+                  className="p-1.5 text-gray-400 hover:text-white rounded"
+                  title={showRawKey ? "Hide" : "Show"}
+                >
+                  {showRawKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+                <button
+                  onClick={handleCopy}
+                  className="p-1.5 text-gray-400 hover:text-white rounded"
+                  title="Copy"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            {copied && <p className="text-xs text-green-600 font-medium">Copied to clipboard</p>}
+            <div className="flex justify-end">
+              <Button onClick={closeCreateModal}>Done</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+              <Input
+                placeholder="e.g. Production Integration"
+                value={newKeyName}
+                onChange={(e) => setNewKeyName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Scopes (optional)</label>
+              <Input
+                placeholder="e.g. invoices:read, payments:write"
+                value={newKeyScopes}
+                onChange={(e) => setNewKeyScopes(e.target.value)}
+              />
+              <p className="text-xs text-gray-400 mt-1">Comma-separated. Leave empty for full access.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date (optional)</label>
+              <Input
+                type="date"
+                value={newKeyExpiry}
+                onChange={(e) => setNewKeyExpiry(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={closeCreateModal}>Cancel</Button>
+              <Button onClick={handleCreate} disabled={createKey.isPending || !newKeyName.trim()}>
+                {createKey.isPending ? "Creating..." : "Create Key"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
 // ---------- Main Settings Page ----------
 
 export function SettingsPage() {
@@ -1871,6 +2115,7 @@ export function SettingsPage() {
       {tab === "scheduled-reports" && <ScheduledReportsTab />}
       {tab === "dunning" && <DunningSettingsTab />}
       {tab === "domains" && <DomainsTab />}
+      {tab === "api-keys" && <ApiKeysTab />}
     </div>
   );
 }

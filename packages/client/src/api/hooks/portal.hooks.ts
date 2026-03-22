@@ -280,6 +280,36 @@ export function usePortalCreatePayment() {
   });
 }
 
+/**
+ * Convenience hook for the portal "Pay Online" flow.
+ * Calls POST /portal/pay and handles the redirect to the gateway checkout URL.
+ * Returns { pay, isPending } for binding to a pay button.
+ */
+export function usePortalPay() {
+  const createPayment = usePortalCreatePayment();
+
+  const pay = async (invoiceId: string, gateway: string): Promise<CreatePaymentOrderResult | null> => {
+    try {
+      const res = await createPayment.mutateAsync({ invoiceId, gateway });
+      const order = res.data as CreatePaymentOrderResult;
+
+      if (order.checkoutUrl) {
+        // Stripe / PayPal hosted checkout: redirect the browser
+        window.location.href = order.checkoutUrl;
+        return order;
+      }
+
+      // Return order data for client-side gateways (e.g. Razorpay popup)
+      return order;
+    } catch {
+      // Error toast already fired by mutation onError
+      return null;
+    }
+  };
+
+  return { pay, isPending: createPayment.isPending };
+}
+
 // ── Subscriptions ────────────────────────────────────────────────────────
 
 const PORTAL_SUBSCRIPTIONS_KEY = "portal-subscriptions";

@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken";
 import { config } from "../../config/index";
 import { UnauthorizedError } from "../../utils/AppError";
 import type { AuthUser } from "@emp-billing/shared";
+import { UserRole } from "@emp-billing/shared";
+import { validateApiKey } from "../../services/auth/api-key.service";
 
 // Extend Express Request
 declare global {
@@ -23,6 +25,8 @@ interface AccessTokenPayload {
   lastName: string;
 }
 
+const API_KEY_PREFIX = "empb_";
+
 export function authenticate(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
@@ -30,6 +34,32 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   }
 
   const token = authHeader.slice(7);
+
+  // Check if this is an API key (starts with empb_)
+  if (token.startsWith(API_KEY_PREFIX)) {
+    // API key auth — async path
+    validateApiKey(token)
+      .then((result) => {
+        req.user = {
+          id: `apikey_${result.keyId}`,
+          email: "api-key@system",
+          role: UserRole.ADMIN as AuthUser["role"],
+          orgId: result.orgId,
+          orgName: "",
+          firstName: "API",
+          lastName: "Key",
+          apiKeyId: result.keyId,
+          apiKeyScopes: result.scopes,
+        };
+        next();
+      })
+      .catch((err: unknown) => {
+        next(err);
+      });
+    return;
+  }
+
+  // JWT auth
   try {
     const payload = jwt.verify(token, config.jwt.accessSecret) as AccessTokenPayload;
     req.user = {
@@ -54,6 +84,31 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
     return next();
   }
   const token = authHeader.slice(7);
+
+  // Check if this is an API key
+  if (token.startsWith(API_KEY_PREFIX)) {
+    validateApiKey(token)
+      .then((result) => {
+        req.user = {
+          id: `apikey_${result.keyId}`,
+          email: "api-key@system",
+          role: UserRole.ADMIN as AuthUser["role"],
+          orgId: result.orgId,
+          orgName: "",
+          firstName: "API",
+          lastName: "Key",
+          apiKeyId: result.keyId,
+          apiKeyScopes: result.scopes,
+        };
+        next();
+      })
+      .catch(() => {
+        // ignore — key invalid, proceed without user
+        next();
+      });
+    return;
+  }
+
   try {
     const payload = jwt.verify(token, config.jwt.accessSecret) as AccessTokenPayload;
     req.user = {

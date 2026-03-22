@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import * as pricingService from "../../services/pricing/pricing.service";
+import { processUsageBilling } from "../../jobs/usage-billing.worker";
 import type { ApiResponse } from "@emp-billing/shared";
 
 export async function recordUsage(req: Request, res: Response): Promise<void> {
@@ -54,4 +55,22 @@ export async function generateUsageInvoice(req: Request, res: Response): Promise
     req.body
   );
   res.status(201).json({ success: true, data: invoice });
+}
+
+/**
+ * Admin-only: manually trigger usage billing for all clients/subscriptions.
+ * Runs the same logic as the scheduled daily job.
+ */
+export async function generateAllUsageInvoices(req: Request, res: Response): Promise<void> {
+  const result = await processUsageBilling();
+
+  res.status(200).json({
+    success: true,
+    data: {
+      invoicesGenerated: result.invoicesGenerated,
+      subscriptionsProcessed: result.subscriptionsProcessed,
+      standaloneClientsProcessed: result.standaloneClientsProcessed,
+      errors: result.errors,
+    },
+  });
 }

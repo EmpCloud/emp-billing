@@ -112,7 +112,7 @@ export async function scheduleSubscriptionJobs(): Promise<void> {
   logger.info("Scheduled subscription billing job (daily midnight)");
 }
 
-/** Schedule usage billing — runs daily at 1am */
+/** Schedule usage billing — runs daily at 2am */
 export async function scheduleUsageBillingJobs(): Promise<void> {
   const existingJobs = await usageBillingQueue.getRepeatableJobs();
   for (const job of existingJobs) {
@@ -122,9 +122,9 @@ export async function scheduleUsageBillingJobs(): Promise<void> {
   await usageBillingQueue.add(
     "process-usage-billing",
     {},
-    { repeat: { pattern: "0 1 * * *" }, removeOnComplete: 100, removeOnFail: 50 },
+    { repeat: { pattern: "0 2 * * *" }, removeOnComplete: 100, removeOnFail: 50 },
   );
-  logger.info("Scheduled usage billing job (daily 1am)");
+  logger.info("Scheduled usage billing job (daily 2am)");
 }
 
 export { connection };

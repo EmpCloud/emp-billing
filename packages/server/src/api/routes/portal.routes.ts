@@ -9,6 +9,7 @@ import * as onlinePaymentController from "../controllers/online-payment.controll
 const router = Router();
 
 // Public — no auth
+router.get("/branding", asyncHandler(portalController.getPortalBranding));
 router.post("/login", validateBody(PortalLoginSchema), asyncHandler(portalController.portalLogin));
 
 // Protected — portal auth required

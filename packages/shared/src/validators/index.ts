@@ -643,6 +643,16 @@ export const CouponFilterSchema = PaginationSchema.extend({
 });
 
 // ============================================================================
+// API KEY
+// ============================================================================
+
+export const CreateApiKeySchema = z.object({
+  name: z.string().min(1, "API key name is required").max(100),
+  scopes: z.array(z.string()).optional(),
+  expiresAt: z.coerce.date().optional(),
+});
+
+// ============================================================================
 // CUSTOM DOMAIN
 // ============================================================================
 
