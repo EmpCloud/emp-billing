@@ -1,4 +1,4 @@
-const TOKEN = "process.env.GITHUB_TOKEN";
+const TOKEN = process.env.GITHUB_TOKEN || "";
 const REPO = "EmpCloud/emp-billing";
 const COMMIT = "2c5cc95";
 const COMMIT_URL = `https://github.com/${REPO}/commit/${COMMIT}`;
