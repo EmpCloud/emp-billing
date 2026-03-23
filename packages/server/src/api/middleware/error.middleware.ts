@@ -44,10 +44,12 @@ export function errorMiddleware(
   }
 
   // Unknown errors
-  logger.error("[Unhandled error]", { err });
+  const errMsg = err instanceof Error ? err.message : String(err);
+  const errStack = err instanceof Error ? err.stack : undefined;
+  logger.error("[Unhandled error]", { message: errMsg, stack: errStack });
   const body: ApiResponse<never> = {
     success: false,
-    error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+    error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred", debug: errMsg },
   };
   res.status(500).json(body);
 }
