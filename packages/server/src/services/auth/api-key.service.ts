@@ -126,7 +126,7 @@ export async function createApiKey(
 
 export async function revokeApiKey(orgId: string, keyId: string): Promise<void> {
   const db = await getDB();
-  const row = await db.findOne<ApiKeyRow>("api_keys", { id: keyId, orgId });
+  const row = await db.findOne<ApiKeyRow>("api_keys", { id: keyId, org_id: orgId });
   if (!row) {
     throw NotFoundError("API key");
   }
@@ -143,7 +143,7 @@ export async function validateApiKey(rawKey: string): Promise<ApiKeyValidation> 
   const db = await getDB();
   const keyHash = hashKey(rawKey);
 
-  const row = await db.findOne<ApiKeyRow>("api_keys", { keyHash });
+  const row = await db.findOne<ApiKeyRow>("api_keys", { key_hash: keyHash });
   if (!row) {
     throw UnauthorizedError("Invalid API key");
   }
