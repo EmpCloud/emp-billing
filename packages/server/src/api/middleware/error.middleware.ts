@@ -49,7 +49,7 @@ export function errorMiddleware(
   logger.error("[Unhandled error]", { message: errMsg, stack: errStack });
   const body: ApiResponse<never> = {
     success: false,
-    error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred", debug: errMsg },
+    error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" },
   };
   res.status(500).json(body);
 }

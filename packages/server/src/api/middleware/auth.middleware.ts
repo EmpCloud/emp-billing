@@ -41,7 +41,7 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
     validateApiKey(token)
       .then((result) => {
         req.user = {
-          id: `apikey_${result.keyId}`,
+          id: result.keyId,
           email: "api-key@system",
           role: UserRole.ADMIN as AuthUser["role"],
           orgId: result.orgId,
@@ -90,7 +90,7 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
     validateApiKey(token)
       .then((result) => {
         req.user = {
-          id: `apikey_${result.keyId}`,
+          id: result.keyId,
           email: "api-key@system",
           role: UserRole.ADMIN as AuthUser["role"],
           orgId: result.orgId,
