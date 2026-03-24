@@ -89,7 +89,7 @@ Handles the complete billing lifecycle: **Quotes > Invoices > Payments > Receipt
 ### Build & Test Status
 
 - **Build**: All 3 packages compile successfully (shared, server, client)
-- **Unit Tests**: **618+ passing** across 46 test files — zero failures
+- **Unit Tests**: **778+ passing** across 46 test files — zero failures
   - `@emp-billing/server`: 457+ tests (39 files) — services, middleware, utils, events
   - `@emp-billing/client`: 11 tests (3 files) — Zustand stores
   - `@emp-billing/shared`: 150 tests (4 files) — validators, tax engines (GST, UAE, VAT, Sales Tax), billing utils
@@ -178,10 +178,10 @@ A comprehensive security audit identified and fixed **30 vulnerabilities**:
 - **US Sales Tax** — All 50 states + DC rates, county/city tax stacking, nexus tracking
 
 ### Payments & Subscriptions
-- **Payment Gateways** (plugin architecture):
-  - Stripe (cards, ACH)
-  - Razorpay (India: UPI, netbanking, cards, wallets)
-  - PayPal (REST API v2, sandbox/live modes)
+- **Payment Gateways** (plugin architecture, all configured in test/sandbox mode):
+  - Stripe (cards, ACH) — test mode configured
+  - Razorpay (India: UPI, netbanking, cards, wallets) — test mode configured
+  - PayPal (REST API v2) — sandbox mode configured, webhook route active
   - Extensible: implement `IPaymentGateway` interface to add any gateway
 - **Subscriptions** — Plan management, trial periods, usage-based billing, quantity seats
 - **Coupons** — Percentage/fixed discounts, max redemptions, per-client limits, date validity, minimum amount rules
