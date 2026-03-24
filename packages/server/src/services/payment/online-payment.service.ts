@@ -114,7 +114,9 @@ export async function verifyPayment(
       ? PaymentMethod.GATEWAY_STRIPE
       : gatewayName === "razorpay"
         ? PaymentMethod.GATEWAY_RAZORPAY
-        : PaymentMethod.OTHER;
+        : gatewayName === "paypal"
+          ? PaymentMethod.GATEWAY_PAYPAL
+          : PaymentMethod.OTHER;
 
   const payment = await recordGatewayPayment(
     db,

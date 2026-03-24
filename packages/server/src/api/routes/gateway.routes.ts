@@ -36,4 +36,19 @@ router.post(
   })
 );
 
+// PayPal webhook -- needs raw body for signature verification
+router.post(
+  "/paypal",
+  express.raw({ type: "application/json" }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await onlinePaymentService.handleGatewayWebhook(
+      "paypal",
+      req.headers as Record<string, string>,
+      JSON.parse(req.body.toString()),
+      req.body // raw buffer
+    );
+    res.json(result);
+  })
+);
+
 export { router as gatewayRoutes };
