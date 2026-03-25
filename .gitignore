@@ -8,3 +8,6 @@ logs/
 coverage/
 dist/
 packages/*/dist/
+
+.deployment.env
+*.deployment.env
