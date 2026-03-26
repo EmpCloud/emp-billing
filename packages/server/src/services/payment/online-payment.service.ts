@@ -297,6 +297,19 @@ async function recordGatewayPayment(
   method: PaymentMethod,
   gatewayTransactionId: string
 ) {
+  // Prevent double-payment: if a payment with this gateway transaction ID already
+  // exists (e.g. webhook arrived before verify, or vice-versa), return the existing record.
+  if (gatewayTransactionId) {
+    const [existingRows] = await db.raw<any>(
+      `SELECT * FROM payments WHERE gateway_transaction_id = ? AND org_id = ? LIMIT 1`,
+      [gatewayTransactionId, orgId],
+    );
+    if (existingRows && existingRows.length > 0) {
+      logger.info(`Duplicate payment skipped for gateway txn ${gatewayTransactionId}`);
+      return existingRows[0];
+    }
+  }
+
   const now = new Date();
   const paymentId = uuid();
 

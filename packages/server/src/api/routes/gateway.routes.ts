@@ -11,11 +11,13 @@ router.post(
   "/stripe",
   express.raw({ type: "application/json" }),
   asyncHandler(async (req: Request, res: Response) => {
+    const rawBody = req.body as Buffer;
+    const parsedBody = JSON.parse(rawBody.toString());
     const result = await onlinePaymentService.handleGatewayWebhook(
       "stripe",
       req.headers as Record<string, string>,
-      req.body,
-      req.body // raw buffer when express.raw is used
+      parsedBody,
+      rawBody
     );
     res.json(result);
   })
@@ -26,11 +28,13 @@ router.post(
   "/razorpay",
   express.raw({ type: "application/json" }),
   asyncHandler(async (req: Request, res: Response) => {
+    const rawBody = req.body as Buffer;
+    const parsedBody = JSON.parse(rawBody.toString());
     const result = await onlinePaymentService.handleGatewayWebhook(
       "razorpay",
       req.headers as Record<string, string>,
-      req.body,
-      req.body // raw buffer when express.raw is used
+      parsedBody,
+      rawBody
     );
     res.json(result);
   })

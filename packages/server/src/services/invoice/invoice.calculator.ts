@@ -119,7 +119,21 @@ export function computeInvoiceTotals(
     discountAmount = Math.min(invoiceDiscountValue, itemTaxableSum);
   }
 
-  const taxAmount = computedItems.reduce((s, i) => s + i.taxAmount, 0);
+  // Tax should be calculated on the amount AFTER invoice-level discount.
+  // Distribute the invoice discount proportionally across items to compute
+  // the correct tax on the discounted subtotal.
+  let taxAmount: number;
+  if (discountAmount > 0 && itemTaxableSum > 0) {
+    // Pro-rate the invoice discount across each line item and recalculate tax
+    taxAmount = computedItems.reduce((s, i) => {
+      const itemShare = itemTaxableSum > 0 ? i.taxableAmount / itemTaxableSum : 0;
+      const itemDiscount = Math.round(discountAmount * itemShare);
+      const adjustedTaxable = i.taxableAmount - itemDiscount;
+      return s + Math.round(adjustedTaxable * i.taxRate / 100);
+    }, 0);
+  } else {
+    taxAmount = computedItems.reduce((s, i) => s + i.taxAmount, 0);
+  }
   const total = itemTaxableSum - discountAmount + taxAmount;
   const amountDue = Math.max(0, total - amountPaid);
 
