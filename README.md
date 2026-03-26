@@ -470,7 +470,7 @@ Configure gateway credentials in `.env` and they auto-initialize on server start
 
 ## License
 
-AGPL-3.0 License. See [LICENSE](LICENSE) for details.
+AAGPL-3.0 License. See [LICENSE](LICENSE) for details.
 
 ---
 
