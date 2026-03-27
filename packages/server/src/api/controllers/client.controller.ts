@@ -81,3 +81,18 @@ export async function autoProvisionClient(req: Request, res: Response): Promise<
   const status = result.isNew ? 201 : 200;
   res.status(status).json({ success: true, data: result });
 }
+
+export async function getPortalAccessStatus(req: Request, res: Response): Promise<void> {
+  const status = await clientService.getPortalAccessStatus(req.user!.orgId, req.params.id as string);
+  res.json({ success: true, data: status });
+}
+
+export async function regeneratePortalToken(req: Request, res: Response): Promise<void> {
+  const result = await clientService.regeneratePortalToken(req.user!.orgId, req.params.id as string);
+  res.json({ success: true, data: result });
+}
+
+export async function revokePortalAccess(req: Request, res: Response): Promise<void> {
+  await clientService.revokePortalAccess(req.user!.orgId, req.params.id as string);
+  res.json({ success: true, data: null });
+}

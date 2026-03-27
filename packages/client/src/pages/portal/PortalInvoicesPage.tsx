@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
-import { FileText, Download, CreditCard, CheckCircle, XCircle } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { FileText, Download, CreditCard, CheckCircle, XCircle, Eye } from "lucide-react";
 import {
   usePortalInvoices,
   useDownloadPortalInvoicePdf,
@@ -292,6 +292,7 @@ function PayNowButton({
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export function PortalInvoicesPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const { data: res, isLoading } = usePortalInvoices({ page, limit: 20 });
   const [searchParams, setSearchParams] = useSearchParams();
@@ -358,8 +359,12 @@ export function PortalInvoicesPage() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {invoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-5 py-3 font-medium text-gray-900">{inv.invoiceNumber}</td>
+                  <tr
+                    key={inv.id}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/portal/invoices/${inv.id}`)}
+                  >
+                    <td className="px-5 py-3 font-medium text-brand-600">{inv.invoiceNumber}</td>
                     <td className="px-5 py-3 text-gray-600">
                       {dayjs(inv.issueDate).format("DD MMM YYYY")}
                     </td>
@@ -372,8 +377,16 @@ export function PortalInvoicesPage() {
                     <td className="px-5 py-3 text-center">
                       <InvoiceStatusBadge status={inv.status} />
                     </td>
-                    <td className="px-5 py-3 text-right">
+                    <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="inline-flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<Eye className="h-3.5 w-3.5" />}
+                          onClick={() => navigate(`/portal/invoices/${inv.id}`)}
+                        >
+                          View
+                        </Button>
                         {PAYABLE_STATUSES.includes(inv.status) && inv.amountDue > 0 && (
                           <PayNowButton
                             invoice={inv}

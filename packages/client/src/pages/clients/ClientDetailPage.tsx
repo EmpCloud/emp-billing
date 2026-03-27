@@ -1,11 +1,11 @@
 import { useState, useCallback } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit, FileText, DollarSign, TrendingUp, Mail, Phone, MapPin, Hash, Calendar, Tag, CreditCard } from "lucide-react";
+import { Plus, Edit, FileText, DollarSign, TrendingUp, Mail, Phone, MapPin, Hash, Calendar, Tag, CreditCard, Globe, RefreshCw, Copy, Check, ShieldOff } from "lucide-react";
 import dayjs from "dayjs";
 import { formatMoney } from "@emp-billing/shared";
 import toast from "react-hot-toast";
-import { useClient, useClientBalance, useClientStatement } from "@/api/hooks/client.hooks";
+import { useClient, useClientBalance, useClientStatement, usePortalAccessStatus, useRegeneratePortalToken, useRevokePortalAccess } from "@/api/hooks/client.hooks";
 import { useInvoices } from "@/api/hooks/invoice.hooks";
 import { apiDelete } from "@/api/client";
 import { Button } from "@/components/common/Button";
@@ -26,11 +26,17 @@ export function ClientDetailPage() {
     dayjs().format("YYYY-MM-DD")
   );
 
+  const [portalToken, setPortalToken] = useState<string | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
+
   const queryClient = useQueryClient();
   const { data: clientData, isLoading: clientLoading } = useClient(id);
   const { data: balanceData } = useClientBalance(id);
   const { data: invoicesData } = useInvoices({ clientId: id, limit: 10 });
   const { data: statementData, isLoading: statementLoading } = useClientStatement(id, statementFrom, statementTo);
+  const { data: portalStatusData } = usePortalAccessStatus(id);
+  const regenerateToken = useRegeneratePortalToken(id);
+  const revokeAccess = useRevokePortalAccess(id);
 
   const handleRemovePaymentMethod = useCallback(async () => {
     if (!window.confirm("Remove saved payment method for this client?")) return;
@@ -211,6 +217,109 @@ export function ClientDetailPage() {
         ) : (
           <p className="text-sm text-gray-400">No payment method saved</p>
         )}
+      </div>
+
+      {/* Portal Access */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <h3 className="text-sm font-medium text-gray-500 mb-4 flex items-center gap-2">
+          <Globe className="h-4 w-4" />
+          Client Portal
+        </h3>
+        {(() => {
+          const portalStatus = portalStatusData?.data as { portalEnabled: boolean; portalEmail: string | null; hasActiveAccess: boolean } | undefined;
+
+          if (!portalStatus || !portalStatus.portalEnabled) {
+            return (
+              <div className="space-y-3">
+                <p className="text-sm text-gray-400">Portal access is not enabled for this client.</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={<Globe className="h-4 w-4" />}
+                  onClick={() => navigate(`/clients/${id}/edit`)}
+                >
+                  Enable Portal
+                </Button>
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  Active
+                </span>
+                {portalStatus.portalEmail && (
+                  <span className="text-sm text-gray-500">{portalStatus.portalEmail}</span>
+                )}
+              </div>
+
+              {portalToken && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2">
+                  <p className="text-sm font-medium text-amber-800">
+                    New portal token generated. Share this with the client — it won't be shown again.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-white border border-amber-200 rounded px-3 py-2 text-sm font-mono text-gray-800 break-all select-all">
+                      {portalToken}
+                    </code>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      icon={tokenCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                      onClick={() => {
+                        navigator.clipboard.writeText(portalToken);
+                        setTokenCopied(true);
+                        setTimeout(() => setTokenCopied(false), 2000);
+                      }}
+                    >
+                      {tokenCopied ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={<RefreshCw className="h-4 w-4" />}
+                  loading={regenerateToken.isPending}
+                  onClick={() => {
+                    regenerateToken.mutate(undefined, {
+                      onSuccess: (res) => {
+                        const data = res?.data as { portalToken?: string } | undefined;
+                        if (data?.portalToken) {
+                          setPortalToken(data.portalToken);
+                        }
+                      },
+                    });
+                  }}
+                >
+                  Regenerate Token
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={<ShieldOff className="h-4 w-4" />}
+                  loading={revokeAccess.isPending}
+                  onClick={() => {
+                    if (window.confirm("Revoke portal access? The client will no longer be able to log in.")) {
+                      revokeAccess.mutate(undefined, {
+                        onSuccess: () => setPortalToken(null),
+                      });
+                    }
+                  }}
+                >
+                  Revoke Access
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Recent Invoices */}

@@ -140,7 +140,8 @@ if (config.env === "production") {
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 async function bootstrap() {
   try {
-    await getDB(); // connect + verify
+    const db = await getDB(); // connect + verify
+    await db.migrate(); // run pending migrations
     logEmailConfig(); // log email provider status
     registerListeners(); // wire up event system
     initializeGateways(); // register configured payment gateways

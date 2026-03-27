@@ -65,7 +65,10 @@ export function useDeleteInvoice() {
       toast.success("Invoice deleted");
       navigate("/invoices");
     },
-    onError: () => toast.error("Failed to delete invoice"),
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      toast.error(message || "Failed to delete invoice");
+    },
   });
 }
 

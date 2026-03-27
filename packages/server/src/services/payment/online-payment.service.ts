@@ -4,7 +4,8 @@ import { NotFoundError, BadRequestError } from "../../utils/AppError";
 import { InvoiceStatus, PaymentMethod } from "@emp-billing/shared";
 import { getGateway, listGateways } from "./gateways/index";
 import { emit } from "../../events/index";
-import type { Invoice, Client } from "@emp-billing/shared";
+import { getInvoice } from "../invoice/invoice.service";
+import type { Invoice, InvoiceItem, Client } from "@emp-billing/shared";
 import type { WebhookResult } from "./gateways/IPaymentGateway";
 import { logger } from "../../utils/logger";
 import { config } from "../../config/index";
@@ -372,24 +373,31 @@ async function recordGatewayPayment(
   await db.increment("clients", invoice.clientId, "outstanding_balance", -amount);
   await db.update("clients", invoice.clientId, { updatedAt: now }, orgId);
 
-  // Emit payment.received event
+  // Enrich payment event with invoice items and client info
+  const invoiceItems = await db.findMany<InvoiceItem>("invoice_items", {
+    where: { invoice_id: invoice.id },
+    orderBy: [{ column: "sort_order", direction: "asc" }],
+  });
+  const freshInvoice = await db.findById<Invoice>("invoices", invoice.id, orgId);
+  const client = await db.findById<Client>("clients", invoice.clientId, orgId);
+
   emit("payment.received", {
     orgId,
     paymentId,
     payment: payment as unknown as Record<string, unknown>,
     invoiceId: invoice.id,
+    invoice: freshInvoice ? { ...freshInvoice, items: invoiceItems } as unknown as Record<string, unknown> : undefined,
+    client: client ? { id: client.id, name: client.name, displayName: client.displayName, email: client.email } as unknown as Record<string, unknown> : undefined,
   });
 
   // Emit invoice.paid if invoice is now fully paid
   if (newStatus === InvoiceStatus.PAID) {
-    const paidInvoice = await db.findById<Invoice>("invoices", invoice.id, orgId);
-    if (paidInvoice) {
-      emit("invoice.paid", {
-        orgId,
-        invoiceId: invoice.id,
-        invoice: paidInvoice as unknown as Record<string, unknown>,
-      });
-    }
+    const fullPaidInvoice = await getInvoice(orgId, invoice.id);
+    emit("invoice.paid", {
+      orgId,
+      invoiceId: invoice.id,
+      invoice: fullPaidInvoice as unknown as Record<string, unknown>,
+    });
   }
 
   return payment;

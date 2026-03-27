@@ -9,7 +9,7 @@ import { nextInvoiceNumber } from "../../utils/number-generator";
 import { generateInvoicePdf } from "../../utils/pdf";
 import { emit } from "../../events/index";
 import * as exchangeRateService from "../currency/exchange-rate.service";
-import type { Invoice, InvoiceItem, CreditNote, Product, Organization } from "@emp-billing/shared";
+import type { Invoice, InvoiceItem, CreditNote, Product, Organization, Client } from "@emp-billing/shared";
 import type { z } from "zod";
 import type { CreateInvoiceSchema, UpdateInvoiceSchema, InvoiceFilterSchema } from "@emp-billing/shared";
 
@@ -20,6 +20,8 @@ import type { CreateInvoiceSchema, UpdateInvoiceSchema, InvoiceFilterSchema } fr
 // ── List ─────────────────────────────────────────────────────────────────────
 
 export interface InvoiceWithConversion extends Invoice {
+  /** Client display name resolved from the clients table */
+  clientName: string;
   /** Total converted to the org's base currency using the stored exchange rate */
   convertedTotal: number;
   /** The org's base currency code */
@@ -59,28 +61,39 @@ export async function listInvoices(orgId: string, opts: z.infer<typeof InvoiceFi
     });
   }
 
-  if (opts.search) {
-    const q = opts.search.toLowerCase();
-    result.data = result.data.filter(
-      (inv) =>
-        inv.invoiceNumber.toLowerCase().includes(q) ||
-        inv.referenceNumber?.toLowerCase().includes(q)
-    );
-  }
-
   // Compute converted totals using the stored exchange rate
   const org = await db.findById<Organization>("organizations", orgId);
   const baseCurrency = org?.defaultCurrency ?? "INR";
 
-  const dataWithConversion: InvoiceWithConversion[] = result.data.map((inv) => {
+  // Resolve client names for all invoices in a single batch
+  const uniqueClientIds = [...new Set(result.data.map((inv) => inv.clientId))];
+  const clientNameMap = new Map<string, string>();
+  for (const cid of uniqueClientIds) {
+    const client = await db.findById<Client>("clients", cid, orgId);
+    if (client) clientNameMap.set(cid, client.displayName || client.name);
+  }
+
+  let dataWithConversion: InvoiceWithConversion[] = result.data.map((inv) => {
     const rate = inv.exchangeRate ?? 1;
     const convertedTotal = Math.round(inv.total * rate);
     return {
       ...inv,
+      clientName: clientNameMap.get(inv.clientId) ?? inv.clientId,
       convertedTotal,
       convertedCurrency: baseCurrency,
     };
   });
+
+  // Search filter — runs after client name resolution so we can match client names too
+  if (opts.search) {
+    const q = opts.search.toLowerCase();
+    dataWithConversion = dataWithConversion.filter(
+      (inv) =>
+        inv.invoiceNumber.toLowerCase().includes(q) ||
+        inv.referenceNumber?.toLowerCase().includes(q) ||
+        inv.clientName.toLowerCase().includes(q)
+    );
+  }
 
   return { ...result, data: dataWithConversion };
 }
@@ -453,12 +466,13 @@ export async function sendInvoice(orgId: string, id: string): Promise<Invoice> {
     updatedAt: now,
   }, orgId);
 
-  // Fetch client email for the sent event payload
+  // Fetch full invoice with items for the event payload
+  const fullInvoice = await getInvoice(orgId, id);
   const client = await db.findById<{ id: string; email: string }>("clients", invoice.clientId, orgId);
   emit("invoice.sent", {
     orgId,
     invoiceId: id,
-    invoice: sentInvoice as unknown as Record<string, unknown>,
+    invoice: fullInvoice as unknown as Record<string, unknown>,
     clientEmail: client?.email ?? "",
   });
 
@@ -683,12 +697,13 @@ export async function markOverdueInvoices(orgId: string): Promise<number> {
     { status: InvoiceStatus.OVERDUE, updated_at: new Date() }
   );
 
-  // Emit overdue event for each affected invoice
+  // Emit overdue event for each affected invoice (with items)
   for (const inv of overdueInvoices) {
+    const fullInv = await getInvoice(orgId, inv.id);
     emit("invoice.overdue", {
       orgId,
       invoiceId: inv.id,
-      invoice: inv as unknown as Record<string, unknown>,
+      invoice: fullInv as unknown as Record<string, unknown>,
     });
   }
 

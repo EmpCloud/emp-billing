@@ -12,7 +12,7 @@ import { Textarea } from "@/components/common/Input";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Spinner } from "@/components/common/Spinner";
 import { TagInput } from "@/components/common/TagInput";
-import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Save, Trash2, Globe } from "lucide-react";
 import { CustomFieldsEditor } from "@/components/common/CustomFieldsEditor";
 import { AddressFields } from "@/components/common/AddressFields";
 
@@ -355,6 +355,50 @@ export function ClientEditPage() {
                 />
               )}
             />
+          </section>
+
+          {/* Portal Access */}
+          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+              <Globe className="h-4 w-4 text-gray-400" />
+              Client Portal Access
+            </h2>
+            <p className="text-sm text-gray-500">
+              Enable portal access to let this client view invoices, quotes, and make payments online.
+            </p>
+            <Controller
+              name="portalEnabled"
+              control={control}
+              render={({ field }) => (
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={field.value}
+                    onClick={() => field.onChange(!field.value)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      field.value ? "bg-brand-600" : "bg-gray-200"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        field.value ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                  <span className="text-sm font-medium text-gray-700">Enable client portal</span>
+                </label>
+              )}
+            />
+            {methods.watch("portalEnabled") && (
+              <Input
+                label="Portal Login Email"
+                type="email"
+                placeholder="Leave blank to use client email"
+                error={errors.portalEmail?.message}
+                {...register("portalEmail")}
+              />
+            )}
           </section>
 
           {/* Notes */}

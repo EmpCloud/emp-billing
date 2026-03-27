@@ -8,11 +8,12 @@ import {
   PaymentMethod,
   SubscriptionStatus,
 } from "@emp-billing/shared";
-import type { DunningConfig, DunningAttempt } from "@emp-billing/shared";
+import type { DunningConfig, DunningAttempt, Invoice, InvoiceItem, Client } from "@emp-billing/shared";
 import { emailQueue } from "../../jobs/queue";
 import { logger } from "../../utils/logger";
 import { getGateway } from "../payment/gateways/index";
 import { emit } from "../../events/index";
+import { getInvoice as getFullInvoice } from "../invoice/invoice.service";
 
 // ============================================================================
 // DUNNING SERVICE
@@ -300,20 +301,30 @@ export async function processDunningAttempt(attemptId: string, orgId?: string): 
     await db.increment("clients", invoice.clientId, "outstanding_balance", -invoice.amountDue);
     await db.update("clients", invoice.clientId, { updatedAt: now }, attempt.orgId);
 
-    // Emit payment.received event
+    // Enrich payment event with invoice items and client info
+    const invoiceItems = await db.findMany<InvoiceItem>("invoice_items", {
+      where: { invoice_id: attempt.invoiceId },
+      orderBy: [{ column: "sort_order", direction: "asc" }],
+    });
+    const freshInvoice = await db.findById<Invoice>("invoices", attempt.invoiceId, attempt.orgId);
+    const payClient = await db.findById<Client>("clients", invoice.clientId, attempt.orgId);
+
     emit("payment.received", {
       orgId: attempt.orgId,
       paymentId,
       payment: { id: paymentId, paymentNumber, amount: invoice.amountDue, method: paymentMethod } as unknown as Record<string, unknown>,
       invoiceId: attempt.invoiceId,
+      invoice: freshInvoice ? { ...freshInvoice, items: invoiceItems } as unknown as Record<string, unknown> : undefined,
+      client: payClient ? { id: payClient.id, name: payClient.name, displayName: payClient.displayName, email: payClient.email } as unknown as Record<string, unknown> : undefined,
     });
 
     // Emit invoice.paid if invoice is now fully paid
     if (newStatus === InvoiceStatus.PAID) {
+      const fullPaidInvoice = await getFullInvoice(attempt.orgId, attempt.invoiceId);
       emit("invoice.paid", {
         orgId: attempt.orgId,
         invoiceId: attempt.invoiceId,
-        invoice: { id: attempt.invoiceId, invoiceNumber: invoice.invoiceNumber, status: InvoiceStatus.PAID } as unknown as Record<string, unknown>,
+        invoice: fullPaidInvoice as unknown as Record<string, unknown>,
       });
     }
 

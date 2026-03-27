@@ -45,6 +45,8 @@ export function InvoiceListPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
+  const [fromDate, setFromDate] = useState(() => dayjs().startOf("month").format("YYYY-MM-DD"));
+  const [toDate, setToDate] = useState(() => dayjs().endOf("month").format("YYYY-MM-DD"));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -53,6 +55,8 @@ export function InvoiceListPage() {
   const params: Record<string, string> = {};
   if (search) params.search = search;
   if (status) params.status = status;
+  if (fromDate) params.from = fromDate;
+  if (toDate) params.to = toDate;
 
   const { data, isLoading } = useInvoices(Object.keys(params).length ? params : undefined);
   const deleteInvoice = useDeleteInvoice();
@@ -84,8 +88,9 @@ export function InvoiceListPage() {
       toast.success(`${ids.length} invoice(s) sent`);
       setSelectedIds(new Set());
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
-    } catch {
-      toast.error("Failed to send some invoices");
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      toast.error(message || "Failed to send some invoices");
     } finally {
       setBulkSending(false);
     }
@@ -100,8 +105,9 @@ export function InvoiceListPage() {
       toast.success(`${ids.length} invoice(s) deleted`);
       setSelectedIds(new Set());
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
-    } catch {
-      toast.error("Failed to delete some invoices");
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      toast.error(message || "Failed to delete some invoices");
     } finally {
       setBulkDeleting(false);
     }
@@ -148,7 +154,7 @@ export function InvoiceListPage() {
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="w-64">
           <Input
-            placeholder="Search invoices…"
+            placeholder="Search invoices or clients…"
             prefix={<Search className="h-4 w-4" />}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -161,6 +167,33 @@ export function InvoiceListPage() {
             ))}
           </Select>
         </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-gray-500">From</label>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-gray-500">To</label>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+          />
+        </div>
+        {(search || status || fromDate || toDate) && (
+          <button
+            type="button"
+            onClick={() => { setSearch(""); setStatus(""); setFromDate(""); setToDate(""); }}
+            className="text-xs text-gray-500 hover:text-gray-700 underline"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* Loading */}
@@ -265,7 +298,7 @@ export function InvoiceListPage() {
                     />
                   </td>
                   <td className="px-4 py-3 font-medium text-brand-600">{inv.invoiceNumber}</td>
-                  <td className="px-4 py-3 text-gray-700">{inv.clientId}</td>
+                  <td className="px-4 py-3 text-gray-700">{(inv as unknown as { clientName?: string }).clientName ?? inv.clientId}</td>
                   <td className="px-4 py-3 text-gray-600">{dayjs(inv.issueDate).format("DD MMM YYYY")}</td>
                   <td className="px-4 py-3 text-gray-600">{dayjs(inv.dueDate).format("DD MMM YYYY")}</td>
                   <td className="px-4 py-3 text-right font-medium">{formatMoney(inv.total, inv.currency)}</td>

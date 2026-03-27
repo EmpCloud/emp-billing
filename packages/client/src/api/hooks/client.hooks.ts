@@ -73,6 +73,40 @@ export function useDeleteClient() {
   });
 }
 
+// ── Portal Access ───────────────────────────────────────────────────────────
+
+export function usePortalAccessStatus(clientId: string) {
+  return useQuery({
+    queryKey: [CLIENTS_KEY, clientId, "portal-access"],
+    queryFn: () => apiGet<{ portalEnabled: boolean; portalEmail: string | null; hasActiveAccess: boolean }>(`/clients/${clientId}/portal-access`),
+    enabled: !!clientId,
+  });
+}
+
+export function useRegeneratePortalToken(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<{ portalToken: string; portalUrl: string }>(`/clients/${clientId}/portal-access/regenerate`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [CLIENTS_KEY, clientId] });
+      toast.success("Portal token generated");
+    },
+    onError: () => toast.error("Failed to generate portal token"),
+  });
+}
+
+export function useRevokePortalAccess(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiDelete(`/clients/${clientId}/portal-access`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [CLIENTS_KEY, clientId] });
+      toast.success("Portal access revoked");
+    },
+    onError: () => toast.error("Failed to revoke portal access"),
+  });
+}
+
 export function useExportClientsCSV() {
   const [isExporting, setIsExporting] = useState(false);
 

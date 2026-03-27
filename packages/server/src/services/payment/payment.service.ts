@@ -4,7 +4,8 @@ import { NotFoundError, BadRequestError } from "../../utils/AppError";
 import { InvoiceStatus, PaymentMethod, CreditNoteStatus } from "@emp-billing/shared";
 import { generateReceiptPdf } from "../../utils/pdf";
 import { emit } from "../../events/index";
-import type { Payment, Invoice, CreditNote } from "@emp-billing/shared";
+import { getInvoice } from "../invoice/invoice.service";
+import type { Payment, Invoice, InvoiceItem, CreditNote, Client } from "@emp-billing/shared";
 import type { z } from "zod";
 import type { CreatePaymentSchema, PaymentFilterSchema, RefundSchema } from "@emp-billing/shared";
 
@@ -173,22 +174,40 @@ export async function recordPayment(
   await db.increment("clients", input.clientId, "outstanding_balance", -input.amount);
   await db.update("clients", input.clientId, { updatedAt: now }, orgId);
 
+  // Enrich payment event with invoice details (items, quantities, products) and client info
+  let enrichedInvoice: Record<string, unknown> | undefined;
+  if (input.invoiceId) {
+    const inv = await db.findById<Invoice>("invoices", input.invoiceId, orgId);
+    if (inv) {
+      const items = await db.findMany<InvoiceItem>("invoice_items", {
+        where: { invoice_id: input.invoiceId },
+        orderBy: [{ column: "sort_order", direction: "asc" }],
+      });
+      enrichedInvoice = { ...inv, items } as unknown as Record<string, unknown>;
+    }
+  }
+
+  const payClient = await db.findById<Client>("clients", input.clientId, orgId);
+
   // Emit payment.received event
   emit("payment.received", {
     orgId,
     paymentId,
     payment: payment as unknown as Record<string, unknown>,
     invoiceId: input.invoiceId,
+    invoice: enrichedInvoice,
+    client: payClient ? { id: payClient.id, name: payClient.name, displayName: payClient.displayName, email: payClient.email } as unknown as Record<string, unknown> : undefined,
   });
 
   // Emit invoice.paid if invoice is now fully paid
   if (invoiceToAllocate && input.invoiceId) {
     const updatedInvoice = await db.findById<Invoice>("invoices", input.invoiceId, orgId);
     if (updatedInvoice && updatedInvoice.status === InvoiceStatus.PAID) {
+      const fullPaidInvoice = await getInvoice(orgId, input.invoiceId);
       emit("invoice.paid", {
         orgId,
         invoiceId: input.invoiceId,
-        invoice: updatedInvoice as unknown as Record<string, unknown>,
+        invoice: fullPaidInvoice as unknown as Record<string, unknown>,
       });
     }
   }

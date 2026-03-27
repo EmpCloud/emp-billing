@@ -33,36 +33,66 @@ export async function getDashboardStats(req: Request, res: Response): Promise<vo
 
 export async function getRevenueReport(req: Request, res: Response): Promise<void> {
   const q = req.query as Record<string, string>;
-  const from = new Date(q.from);
-  const to = new Date(q.to);
+  const from = q.from ? new Date(q.from) : new Date(new Date().getFullYear(), 0, 1);
+  const to = q.to ? new Date(q.to) : new Date();
   const result = await reportService.getRevenueReport(req.user!.orgId, from, to);
-  res.json({ success: true, data: result.data });
+  res.json({ success: true, data: { months: result.data, baseCurrency: result.baseCurrency } });
 }
 
 export async function getReceivablesReport(req: Request, res: Response): Promise<void> {
   const result = await reportService.getReceivablesReport(req.user!.orgId);
-  res.json({ success: true, data: result.data });
+  // Frontend expects { clientId, clientName, outstanding, currency }[]
+  const data = result.data.map((r) => ({
+    ...r,
+    outstanding: r.totalOutstanding,
+    currency: result.baseCurrency,
+  }));
+  res.json({ success: true, data });
 }
 
 export async function getAgingReport(req: Request, res: Response): Promise<void> {
   const result = await reportService.getAgingReport(req.user!.orgId);
-  res.json({ success: true, data: result.data });
+  // Frontend expects { clientId, clientName, current, days1to30, ..., total, currency }[]
+  const data = result.data.map((r) => ({
+    ...r,
+    total: r.current + r.days1to30 + r.days31to60 + r.days61to90 + r.days90plus,
+    currency: result.baseCurrency,
+  }));
+  res.json({ success: true, data });
 }
 
 export async function getExpenseReport(req: Request, res: Response): Promise<void> {
   const q = req.query as Record<string, string>;
-  const from = new Date(q.from);
-  const to = new Date(q.to);
+  const from = q.from ? new Date(q.from) : new Date(new Date().getFullYear(), 0, 1);
+  const to = q.to ? new Date(q.to) : new Date();
   const result = await reportService.getExpenseReport(req.user!.orgId, from, to);
-  res.json({ success: true, data: result.data });
+  // Frontend expects { category, total, count, currency }[]
+  const data = result.data.map((r) => ({
+    category: r.categoryName,
+    total: r.total,
+    count: r.count,
+    currency: "INR",
+  }));
+  res.json({ success: true, data });
 }
 
 export async function getProfitLossReport(req: Request, res: Response): Promise<void> {
   const q = req.query as Record<string, string>;
-  const from = new Date(q.from);
-  const to = new Date(q.to);
+  const from = q.from ? new Date(q.from) : new Date(new Date().getFullYear(), 0, 1);
+  const to = q.to ? new Date(q.to) : new Date();
   const result = await reportService.getProfitLossReport(req.user!.orgId, from, to);
-  res.json({ success: true, data: result.data });
+  // Frontend expects { months: [{month, revenue, expenses, net}], totals: {revenue, expenses, net} }
+  const months = result.data.map((r) => ({
+    month: r.month,
+    revenue: r.revenue,
+    expenses: r.expenses,
+    net: r.revenue - r.expenses,
+  }));
+  const totals = months.reduce(
+    (acc, m) => ({ revenue: acc.revenue + m.revenue, expenses: acc.expenses + m.expenses, net: acc.net + m.net }),
+    { revenue: 0, expenses: 0, net: 0 }
+  );
+  res.json({ success: true, data: { months, totals } });
 }
 
 export async function getTaxReport(req: Request, res: Response): Promise<void> {
@@ -75,8 +105,8 @@ export async function getTaxReport(req: Request, res: Response): Promise<void> {
 
 export async function getTopClients(req: Request, res: Response): Promise<void> {
   const q = req.query as Record<string, string>;
-  const from = new Date(q.from);
-  const to = new Date(q.to);
+  const from = q.from ? new Date(q.from) : new Date(new Date().getFullYear(), 0, 1);
+  const to = q.to ? new Date(q.to) : new Date();
   const limit = q.limit ? parseInt(q.limit, 10) : 10;
   const result = await reportService.getTopClients(req.user!.orgId, from, to, limit);
   res.json({ success: true, data: result.data });
@@ -86,8 +116,8 @@ export async function getTopClients(req: Request, res: Response): Promise<void> 
 
 export async function exportRevenueReport(req: Request, res: Response): Promise<void> {
   const q = req.query as Record<string, string>;
-  const from = new Date(q.from);
-  const to = new Date(q.to);
+  const from = q.from ? new Date(q.from) : new Date(new Date().getFullYear(), 0, 1);
+  const to = q.to ? new Date(q.to) : new Date();
   const result = await reportService.getRevenueReport(req.user!.orgId, from, to);
   const headers = ["Month", "Revenue (paise)"];
   const rows = result.data.map((r) => [r.month, r.revenue]);
@@ -103,8 +133,8 @@ export async function exportReceivablesReport(req: Request, res: Response): Prom
 
 export async function exportExpenseReport(req: Request, res: Response): Promise<void> {
   const q = req.query as Record<string, string>;
-  const from = new Date(q.from);
-  const to = new Date(q.to);
+  const from = q.from ? new Date(q.from) : new Date(new Date().getFullYear(), 0, 1);
+  const to = q.to ? new Date(q.to) : new Date();
   const result = await reportService.getExpenseReport(req.user!.orgId, from, to);
   const headers = ["Category ID", "Category Name", "Total (paise)", "Count"];
   const rows = result.data.map((r) => [r.categoryId, r.categoryName, r.total, r.count]);

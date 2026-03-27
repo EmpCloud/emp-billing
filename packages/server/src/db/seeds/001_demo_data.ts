@@ -529,4 +529,151 @@ export async function seed(knex: Knex): Promise<void> {
       created_by: userId, created_at: now, updated_at: now,
     },
   ]);
+
+  // ── plans ──────────────────────────────────────────────────────────────────
+  const starterPlanId = uuid();
+  const proPlanId = uuid();
+  const enterprisePlanId = uuid();
+
+  await knex("plans").insert([
+    {
+      id: starterPlanId, org_id: orgId,
+      name: "Starter", description: "For small teams getting started",
+      billing_interval: "monthly", price: 99900, // ₹999/mo
+      setup_fee: 0, currency: "INR", trial_period_days: 14,
+      features: JSON.stringify(["5 users", "Basic reports", "Email support"]),
+      is_active: true, sort_order: 1, created_at: now, updated_at: now,
+    },
+    {
+      id: proPlanId, org_id: orgId,
+      name: "Professional", description: "For growing businesses",
+      billing_interval: "monthly", price: 299900, // ₹2,999/mo
+      setup_fee: 0, currency: "INR", trial_period_days: 14,
+      features: JSON.stringify(["25 users", "Advanced reports", "Priority support", "API access"]),
+      is_active: true, sort_order: 2, created_at: now, updated_at: now,
+    },
+    {
+      id: enterprisePlanId, org_id: orgId,
+      name: "Enterprise", description: "For large organizations",
+      billing_interval: "annual", price: 9999900, // ₹99,999/yr
+      setup_fee: 4999900, currency: "INR", trial_period_days: 30,
+      features: JSON.stringify(["Unlimited users", "Custom reports", "Dedicated support", "SLA", "SSO"]),
+      is_active: true, sort_order: 3, created_at: now, updated_at: now,
+    },
+  ]);
+
+  // ── subscriptions ──────────────────────────────────────────────────────────
+  const sub1Id = uuid();
+  const sub2Id = uuid();
+  const sub3Id = uuid();
+  const sub4Id = uuid();
+  const sub5Id = uuid();
+  const sub6Id = uuid();
+
+  await knex("subscriptions").insert([
+    // Tata — active Pro plan, 10 seats, started 6 months ago
+    {
+      id: sub1Id, org_id: orgId, client_id: clientId, plan_id: proPlanId,
+      status: "active", quantity: 10,
+      current_period_start: dayjs().subtract(1, "month").toDate(),
+      current_period_end: dayjs().add(0, "month").toDate(),
+      next_billing_date: dayjs().add(0, "month").format("YYYY-MM-DD"),
+      auto_renew: true, created_by: userId,
+      created_at: dayjs().subtract(6, "month").toDate(), updated_at: now,
+    },
+    // Infosys — active Enterprise plan, 1 seat, started 4 months ago
+    {
+      id: sub2Id, org_id: orgId, client_id: client2Id, plan_id: enterprisePlanId,
+      status: "active", quantity: 1,
+      current_period_start: dayjs().subtract(4, "month").toDate(),
+      current_period_end: dayjs().add(8, "month").toDate(),
+      next_billing_date: dayjs().add(8, "month").format("YYYY-MM-DD"),
+      auto_renew: true, created_by: userId,
+      created_at: dayjs().subtract(4, "month").toDate(), updated_at: now,
+    },
+    // Freshworks — active Starter plan, 5 seats, started 3 months ago
+    {
+      id: sub3Id, org_id: orgId, client_id: client3Id, plan_id: starterPlanId,
+      status: "active", quantity: 5,
+      current_period_start: dayjs().subtract(1, "month").toDate(),
+      current_period_end: dayjs().toDate(),
+      next_billing_date: dayjs().format("YYYY-MM-DD"),
+      auto_renew: true, created_by: userId,
+      created_at: dayjs().subtract(3, "month").toDate(), updated_at: now,
+    },
+    // Zoho — trialing Starter plan, started 5 days ago
+    {
+      id: sub4Id, org_id: orgId, client_id: client4Id, plan_id: starterPlanId,
+      status: "trialing", quantity: 3,
+      trial_start: dayjs().subtract(5, "day").toDate(),
+      trial_end: dayjs().add(9, "day").toDate(),
+      current_period_start: dayjs().subtract(5, "day").toDate(),
+      current_period_end: dayjs().add(9, "day").toDate(),
+      next_billing_date: dayjs().add(9, "day").format("YYYY-MM-DD"),
+      auto_renew: true, created_by: userId,
+      created_at: dayjs().subtract(5, "day").toDate(), updated_at: now,
+    },
+    // Cancelled sub — Tata had a Starter sub 5 months ago, cancelled 2 months ago
+    {
+      id: sub5Id, org_id: orgId, client_id: clientId, plan_id: starterPlanId,
+      status: "cancelled", quantity: 2,
+      current_period_start: dayjs().subtract(3, "month").toDate(),
+      current_period_end: dayjs().subtract(2, "month").toDate(),
+      cancelled_at: dayjs().subtract(2, "month").toDate(),
+      cancel_reason: "Upgraded to Pro plan",
+      next_billing_date: dayjs().subtract(2, "month").format("YYYY-MM-DD"),
+      auto_renew: false, created_by: userId,
+      created_at: dayjs().subtract(5, "month").toDate(), updated_at: now,
+    },
+    // Past due — another client on Pro plan
+    {
+      id: sub6Id, org_id: orgId, client_id: client3Id, plan_id: proPlanId,
+      status: "past_due", quantity: 1,
+      current_period_start: dayjs().subtract(2, "month").toDate(),
+      current_period_end: dayjs().subtract(1, "month").toDate(),
+      next_billing_date: dayjs().subtract(1, "month").format("YYYY-MM-DD"),
+      auto_renew: true, created_by: userId,
+      created_at: dayjs().subtract(8, "month").toDate(), updated_at: now,
+    },
+  ]);
+
+  // ── subscription events ────────────────────────────────────────────────────
+  await knex("subscription_events").insert([
+    // Sub1 (Tata Pro) — created, trial, activated
+    { id: uuid(), subscription_id: sub1Id, org_id: orgId, event_type: "created", created_at: dayjs().subtract(6, "month").toDate() },
+    { id: uuid(), subscription_id: sub1Id, org_id: orgId, event_type: "trial_started", created_at: dayjs().subtract(6, "month").toDate() },
+    { id: uuid(), subscription_id: sub1Id, org_id: orgId, event_type: "activated", created_at: dayjs().subtract(168, "day").toDate() },
+    // Sub1 renewed each month
+    { id: uuid(), subscription_id: sub1Id, org_id: orgId, event_type: "renewed", created_at: dayjs().subtract(5, "month").toDate() },
+    { id: uuid(), subscription_id: sub1Id, org_id: orgId, event_type: "renewed", created_at: dayjs().subtract(4, "month").toDate() },
+    { id: uuid(), subscription_id: sub1Id, org_id: orgId, event_type: "renewed", created_at: dayjs().subtract(3, "month").toDate() },
+    { id: uuid(), subscription_id: sub1Id, org_id: orgId, event_type: "renewed", created_at: dayjs().subtract(2, "month").toDate() },
+    { id: uuid(), subscription_id: sub1Id, org_id: orgId, event_type: "renewed", created_at: dayjs().subtract(1, "month").toDate() },
+    // Sub2 (Infosys Enterprise) — created, activated
+    { id: uuid(), subscription_id: sub2Id, org_id: orgId, event_type: "created", created_at: dayjs().subtract(4, "month").toDate() },
+    { id: uuid(), subscription_id: sub2Id, org_id: orgId, event_type: "activated", created_at: dayjs().subtract(4, "month").toDate() },
+    // Sub3 (Freshworks Starter) — created, trial, activated
+    { id: uuid(), subscription_id: sub3Id, org_id: orgId, event_type: "created", created_at: dayjs().subtract(3, "month").toDate() },
+    { id: uuid(), subscription_id: sub3Id, org_id: orgId, event_type: "trial_started", created_at: dayjs().subtract(3, "month").toDate() },
+    { id: uuid(), subscription_id: sub3Id, org_id: orgId, event_type: "activated", created_at: dayjs().subtract(76, "day").toDate() },
+    { id: uuid(), subscription_id: sub3Id, org_id: orgId, event_type: "renewed", created_at: dayjs().subtract(2, "month").toDate() },
+    { id: uuid(), subscription_id: sub3Id, org_id: orgId, event_type: "renewed", created_at: dayjs().subtract(1, "month").toDate() },
+    // Sub4 (Zoho trialing)
+    { id: uuid(), subscription_id: sub4Id, org_id: orgId, event_type: "created", created_at: dayjs().subtract(5, "day").toDate() },
+    { id: uuid(), subscription_id: sub4Id, org_id: orgId, event_type: "trial_started", created_at: dayjs().subtract(5, "day").toDate() },
+    // Sub5 (Tata cancelled Starter) — created, activated, cancelled
+    { id: uuid(), subscription_id: sub5Id, org_id: orgId, event_type: "created", created_at: dayjs().subtract(5, "month").toDate() },
+    { id: uuid(), subscription_id: sub5Id, org_id: orgId, event_type: "activated", created_at: dayjs().subtract(5, "month").toDate() },
+    { id: uuid(), subscription_id: sub5Id, org_id: orgId, event_type: "cancelled", created_at: dayjs().subtract(2, "month").toDate() },
+    // Sub5 → Sub1 upgrade event
+    {
+      id: uuid(), subscription_id: sub1Id, org_id: orgId, event_type: "upgraded",
+      old_plan_id: starterPlanId, new_plan_id: proPlanId,
+      created_at: dayjs().subtract(6, "month").toDate(),
+    },
+    // Sub6 (Past due Pro)
+    { id: uuid(), subscription_id: sub6Id, org_id: orgId, event_type: "created", created_at: dayjs().subtract(8, "month").toDate() },
+    { id: uuid(), subscription_id: sub6Id, org_id: orgId, event_type: "activated", created_at: dayjs().subtract(8, "month").toDate() },
+    { id: uuid(), subscription_id: sub6Id, org_id: orgId, event_type: "payment_failed", created_at: dayjs().subtract(1, "month").toDate() },
+  ]);
 }

@@ -32,6 +32,11 @@ router.post("/:id/contacts", requireSales, validateBody(ClientContactSchema), as
 router.get("/:id/statement", asyncHandler(clientController.getClientStatement));
 router.get("/:id/balance",   asyncHandler(clientController.getClientBalance));
 
+// Portal access
+router.get("/:id/portal-access",      asyncHandler(clientController.getPortalAccessStatus));
+router.post("/:id/portal-access/regenerate", requireSales, asyncHandler(clientController.regeneratePortalToken));
+router.delete("/:id/portal-access",   requireSales, asyncHandler(clientController.revokePortalAccess));
+
 // Payment method
 router.put("/:id/payment-method",    requireAccountant, asyncHandler(clientController.updatePaymentMethod));
 router.delete("/:id/payment-method", requireAccountant, asyncHandler(clientController.removePaymentMethod));

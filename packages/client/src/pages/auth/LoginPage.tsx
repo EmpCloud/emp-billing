@@ -68,6 +68,13 @@ export function LoginPage() {
         </Link>
       </p>
 
+      <p className="mt-3 text-center text-sm text-gray-500">
+        Client?{" "}
+        <Link to="/portal/login" className="text-brand-600 font-medium hover:underline">
+          Sign in to Client Portal
+        </Link>
+      </p>
+
       {/* Dev hint */}
       {import.meta.env.DEV && (
         <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-500">

@@ -1,6 +1,8 @@
+import { v4 as uuid } from "uuid";
 import { on } from "./index";
 import type { BillingEvent } from "./index";
 import { logger } from "../utils/logger";
+import { getDB } from "../db/adapters/index";
 import { dispatchEvent } from "../services/webhook/webhook.service";
 import type { WebhookEvent } from "@emp-billing/shared";
 import {
@@ -272,6 +274,58 @@ export function registerListeners(): void {
       entityId: payload.subscriptionId,
     }).catch((err) => logger.error("Failed to create notification for subscription.trial_ending", { err }));
   });
+
+  // ── Audit log for all events ─────────────────────────────────────────────
+  const AUDIT_EVENTS: BillingEvent[] = [
+    "invoice.created", "invoice.sent", "invoice.paid", "invoice.overdue",
+    "payment.received",
+    "quote.created", "quote.accepted", "quote.declined",
+    "client.created",
+    "expense.created",
+    "subscription.created", "subscription.activated", "subscription.renewed",
+    "subscription.upgraded", "subscription.downgraded",
+    "subscription.paused", "subscription.resumed",
+    "subscription.cancelled", "subscription.expired",
+    "payment.failed", "subscription.payment_failed",
+    "coupon.redeemed",
+  ];
+
+  for (const event of AUDIT_EVENTS) {
+    on(event, (payload) => {
+      const p = payload as unknown as Record<string, unknown>;
+      const orgId = p.orgId as string;
+
+      // Derive entity type and id from event name + payload
+      const [entityType] = event.split(".");
+      const entityId =
+        (p.invoiceId as string) ||
+        (p.paymentId as string) ||
+        (p.quoteId as string) ||
+        (p.clientId as string) ||
+        (p.expenseId as string) ||
+        (p.subscriptionId as string) ||
+        (p.couponId as string) ||
+        "";
+
+      getDB()
+        .then((db) =>
+          db.create("audit_logs", {
+            id: uuid(),
+            orgId,
+            userId: null,
+            action: event,
+            entityType,
+            entityId,
+            before: null,
+            after: JSON.stringify(p),
+            ipAddress: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+        )
+        .catch((err) => logger.warn("Audit log write failed", { event, err }));
+    });
+  }
 
   logger.info("Event listeners registered");
 }

@@ -21,6 +21,8 @@ export interface PaymentReceivedPayload {
   paymentId: string;
   payment: Record<string, unknown>;
   invoiceId?: string;
+  invoice?: Record<string, unknown>;
+  client?: Record<string, unknown>;
 }
 
 export interface QuoteEventPayload {

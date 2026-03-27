@@ -79,6 +79,7 @@ import { SavedReports } from "@/pages/reports/SavedReports";
 import { PortalLoginPage } from "@/pages/portal/PortalLoginPage";
 import { PortalDashboard } from "@/pages/portal/PortalDashboard";
 import { PortalInvoicesPage } from "@/pages/portal/PortalInvoicesPage";
+import { PortalInvoiceDetailPage } from "@/pages/portal/PortalInvoiceDetailPage";
 import { PortalQuotesPage } from "@/pages/portal/PortalQuotesPage";
 import { PortalPaymentsPage } from "@/pages/portal/PortalPaymentsPage";
 import { PortalCreditNotesPage } from "@/pages/portal/PortalCreditNotesPage";
@@ -190,6 +191,7 @@ export default function App() {
             <Route path="/portal/login" element={<PortalLoginPage />} />
             <Route path="/portal" element={<PortalDashboard />} />
             <Route path="/portal/invoices" element={<PortalInvoicesPage />} />
+            <Route path="/portal/invoices/:id" element={<PortalInvoiceDetailPage />} />
             <Route path="/portal/quotes" element={<PortalQuotesPage />} />
             <Route path="/portal/payments" element={<PortalPaymentsPage />} />
             <Route path="/portal/credit-notes" element={<PortalCreditNotesPage />} />

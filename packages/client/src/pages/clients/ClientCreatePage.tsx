@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm, Controller, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,6 +13,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { TagInput } from "@/components/common/TagInput";
 import { CustomFieldsEditor } from "@/components/common/CustomFieldsEditor";
 import { AddressFields } from "@/components/common/AddressFields";
+import { Globe, Copy, Check } from "lucide-react";
 
 type FormValues = z.infer<typeof CreateClientSchema>;
 
@@ -34,6 +36,8 @@ const PAYMENT_TERMS = [
 export function ClientCreatePage() {
   const navigate = useNavigate();
   const createClient = useCreateClient();
+  const [portalToken, setPortalToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const methods = useForm<FormValues>({
     resolver: zodResolver(CreateClientSchema),
@@ -56,8 +60,61 @@ export function ClientCreatePage() {
 
   function onSubmit(values: FormValues) {
     createClient.mutate(values as unknown as Record<string, unknown>, {
-      onSuccess: () => navigate("/clients"),
+      onSuccess: (res) => {
+        const data = res?.data as Record<string, unknown> | undefined;
+        if (data?.portalToken) {
+          setPortalToken(data.portalToken as string);
+        } else {
+          navigate("/clients");
+        }
+      },
     });
+  }
+
+  function copyToken() {
+    if (!portalToken) return;
+    navigator.clipboard.writeText(portalToken);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (portalToken) {
+    return (
+      <div className="p-6 max-w-3xl">
+        <PageHeader
+          title="Client Created"
+          breadcrumb={[{ label: "Clients", href: "/clients" }, { label: "New Client" }]}
+        />
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <Globe className="h-5 w-5 text-brand-600" />
+            <h2 className="text-base font-semibold text-gray-800">Portal Access Token</h2>
+          </div>
+          <p className="text-sm text-gray-600">
+            Share this token with the client so they can log in to the portal. This token will only be shown once.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm font-mono text-gray-800 break-all select-all">
+              {portalToken}
+            </code>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              icon={copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+              onClick={copyToken}
+            >
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+          <div className="flex items-center gap-3 pt-2">
+            <Button onClick={() => navigate("/clients")}>
+              Go to Clients
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -165,6 +222,50 @@ export function ClientCreatePage() {
                 />
               )}
             />
+          </section>
+
+          {/* Portal Access */}
+          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+              <Globe className="h-4 w-4 text-gray-400" />
+              Client Portal Access
+            </h2>
+            <p className="text-sm text-gray-500">
+              Enable portal access to let this client view invoices, quotes, and make payments online.
+            </p>
+            <Controller
+              name="portalEnabled"
+              control={control}
+              render={({ field }) => (
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={field.value}
+                    onClick={() => field.onChange(!field.value)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      field.value ? "bg-brand-600" : "bg-gray-200"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        field.value ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                  <span className="text-sm font-medium text-gray-700">Enable client portal</span>
+                </label>
+              )}
+            />
+            {methods.watch("portalEnabled") && (
+              <Input
+                label="Portal Login Email"
+                type="email"
+                placeholder="Leave blank to use client email"
+                error={errors.portalEmail?.message}
+                {...register("portalEmail")}
+              />
+            )}
           </section>
 
           {/* Notes */}

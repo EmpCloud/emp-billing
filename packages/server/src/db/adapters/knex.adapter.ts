@@ -42,6 +42,22 @@ export class KnexAdapter implements IDBAdapter {
 
   async connect(): Promise<void> {
     try {
+      // Ensure the database exists before connecting to it
+      const client = config.db.provider === "pg" ? "pg" : "mysql2";
+      const bootstrap = Knex({
+        client,
+        connection: {
+          host: config.db.host,
+          port: config.db.port,
+          user: config.db.user,
+          password: config.db.password,
+        },
+      });
+      await bootstrap.raw(
+        `CREATE DATABASE IF NOT EXISTS \`${config.db.name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+      );
+      await bootstrap.destroy();
+
       await this.knex.raw("SELECT 1");
       this._connected = true;
       logger.info(`[DB] Connected to ${config.db.provider} at ${config.db.host}:${config.db.port}/${config.db.name}`);

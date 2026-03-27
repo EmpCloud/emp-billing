@@ -86,7 +86,7 @@ export async function getClient(orgId: string, id: string): Promise<Client & { c
 export async function createClient(
   orgId: string,
   input: z.infer<typeof CreateClientSchema>
-): Promise<Client> {
+): Promise<Client & { portalToken?: string }> {
   const db = await getDB();
 
   const existing = await db.findOne("clients", { org_id: orgId, email: input.email });
@@ -128,6 +128,25 @@ export async function createClient(
     );
   }
 
+  // Create portal access if portalEnabled
+  let portalToken: string | undefined;
+  if (clientData.portalEnabled) {
+    portalToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(portalToken).digest("hex");
+
+    await db.create("client_portal_access", {
+      id: uuid(),
+      clientId,
+      orgId,
+      email: clientData.portalEmail || input.email,
+      tokenHash,
+      expiresAt: null,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
   const createdClient = await getClient(orgId, clientId);
 
   emit("client.created", {
@@ -136,14 +155,14 @@ export async function createClient(
     client: createdClient as unknown as Record<string, unknown>,
   });
 
-  return createdClient;
+  return { ...createdClient, portalToken };
 }
 
 export async function updateClient(
   orgId: string,
   id: string,
   input: z.infer<typeof UpdateClientSchema>
-): Promise<Client> {
+): Promise<Client & { portalToken?: string }> {
   const db = await getDB();
   const existing = await db.findById("clients", id, orgId);
   if (!existing) throw NotFoundError("Client");
@@ -162,6 +181,45 @@ export async function updateClient(
   if (clientData.customFields) updateData.customFields = JSON.stringify(clientData.customFields);
 
   await db.update("clients", id, updateData, orgId);
+
+  // Handle portal access changes
+  const wasPortalEnabled = (existing as Client).portalEnabled;
+  const isPortalEnabled = input.portalEnabled;
+
+  if (isPortalEnabled === true && !wasPortalEnabled) {
+    // Enabling portal — create access record with new token
+    const portalEmail = input.portalEmail || (existing as Client).email;
+    const portalToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(portalToken).digest("hex");
+    const now = new Date();
+
+    await db.create("client_portal_access", {
+      id: uuid(),
+      clientId: id,
+      orgId,
+      email: portalEmail,
+      tokenHash,
+      expiresAt: null,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const updatedClient = await getClient(orgId, id);
+    return { ...updatedClient, portalToken };
+  } else if (isPortalEnabled === false && wasPortalEnabled) {
+    // Disabling portal — deactivate all access records
+    const accessRecords = await db.findMany("client_portal_access", {
+      where: { client_id: id, org_id: orgId },
+    });
+    for (const record of accessRecords) {
+      await db.update("client_portal_access", (record as { id: string }).id, {
+        isActive: false,
+        updatedAt: new Date(),
+      });
+    }
+  }
+
   return getClient(orgId, id);
 }
 
@@ -435,6 +493,110 @@ export async function autoProvisionClient(
 
   const client = await getClient(orgId, clientId);
   return { client, isNew: true, portalUrl, portalToken };
+}
+
+// ── Portal Access Management ────────────────────────────────────────────────
+
+export interface PortalAccessStatus {
+  portalEnabled: boolean;
+  portalEmail: string | null;
+  hasActiveAccess: boolean;
+}
+
+export async function getPortalAccessStatus(
+  orgId: string,
+  clientId: string
+): Promise<PortalAccessStatus> {
+  const db = await getDB();
+  const client = await db.findById<Client>("clients", clientId, orgId);
+  if (!client) throw NotFoundError("Client");
+
+  const access = await db.findOne("client_portal_access", {
+    client_id: clientId,
+    org_id: orgId,
+    is_active: true,
+  });
+
+  return {
+    portalEnabled: client.portalEnabled ?? false,
+    portalEmail: client.portalEmail ?? null,
+    hasActiveAccess: !!access,
+  };
+}
+
+export async function regeneratePortalToken(
+  orgId: string,
+  clientId: string
+): Promise<{ portalToken: string; portalUrl: string }> {
+  const db = await getDB();
+  const client = await db.findById<Client>("clients", clientId, orgId);
+  if (!client) throw NotFoundError("Client");
+
+  // Deactivate all existing access records
+  const existing = await db.findMany("client_portal_access", {
+    where: { client_id: clientId, org_id: orgId },
+  });
+  for (const record of existing) {
+    await db.update("client_portal_access", (record as { id: string }).id, {
+      isActive: false,
+      updatedAt: new Date(),
+    });
+  }
+
+  // Create new access record
+  const portalToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(portalToken).digest("hex");
+  const now = new Date();
+
+  await db.create("client_portal_access", {
+    id: uuid(),
+    clientId,
+    orgId,
+    email: client.portalEmail || client.email,
+    tokenHash,
+    expiresAt: null,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Ensure client is marked as portal enabled
+  if (!client.portalEnabled) {
+    await db.update("clients", clientId, {
+      portalEnabled: true,
+      portalEmail: client.portalEmail || client.email,
+      updatedAt: now,
+    }, orgId);
+  }
+
+  const portalUrl = `${config.corsOrigin}/portal/login`;
+  return { portalToken, portalUrl };
+}
+
+export async function revokePortalAccess(
+  orgId: string,
+  clientId: string
+): Promise<void> {
+  const db = await getDB();
+  const client = await db.findById<Client>("clients", clientId, orgId);
+  if (!client) throw NotFoundError("Client");
+
+  // Deactivate all access records
+  const records = await db.findMany("client_portal_access", {
+    where: { client_id: clientId, org_id: orgId },
+  });
+  for (const record of records) {
+    await db.update("client_portal_access", (record as { id: string }).id, {
+      isActive: false,
+      updatedAt: new Date(),
+    });
+  }
+
+  // Mark client as portal disabled
+  await db.update("clients", clientId, {
+    portalEnabled: false,
+    updatedAt: new Date(),
+  }, orgId);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
