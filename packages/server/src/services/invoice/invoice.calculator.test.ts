@@ -324,4 +324,71 @@ describe("computeInvoiceTotals", () => {
     expect(totals.total).toBe(72000); // 80000 - 8000
     expect(totals.amountDue).toBe(72000);
   });
+
+  it("tax is recalculated AFTER invoice-level discount (not before)", () => {
+    // Item: 100000 with 18% tax -> taxable=100000, tax=18000, amount=118000
+    const items = [
+      computeLineItem({ quantity: 1, rate: 100000, taxRate: 18 }),
+    ];
+
+    // Without discount: tax = 18000
+    const noDiscount = computeInvoiceTotals(items);
+    expect(noDiscount.taxAmount).toBe(18000);
+    expect(noDiscount.total).toBe(118000);
+
+    // With 10% invoice discount: discount on 100000 = 10000
+    // Adjusted taxable = 100000 - 10000 = 90000
+    // Tax recalculated on 90000 at 18% = 16200
+    const withDiscount = computeInvoiceTotals(items, DiscountType.PERCENTAGE, 10);
+    expect(withDiscount.discountAmount).toBe(10000);
+    expect(withDiscount.taxAmount).toBe(16200); // tax AFTER discount
+    expect(withDiscount.total).toBe(106200); // (100000 - 10000) + 16200
+  });
+
+  it("coupon application: fixed discount reduces both taxable and tax", () => {
+    const items = [
+      computeLineItem({ quantity: 2, rate: 50000, taxRate: 18 }),
+    ];
+    // item: subtotal=100000, taxable=100000, tax=18000
+
+    // Apply 25000 fixed coupon
+    const totals = computeInvoiceTotals(items, DiscountType.FIXED, 25000);
+
+    expect(totals.discountAmount).toBe(25000);
+    // Tax on (100000 - 25000) = 75000 at 18% = 13500
+    expect(totals.taxAmount).toBe(13500);
+    expect(totals.total).toBe(88500); // 75000 + 13500
+  });
+
+  it("multiple items with invoice discount: tax pro-rated correctly", () => {
+    const items = [
+      computeLineItem({ quantity: 1, rate: 60000, taxRate: 18 }),
+      computeLineItem({ quantity: 1, rate: 40000, taxRate: 12 }),
+    ];
+    // item1: taxable=60000, tax=10800
+    // item2: taxable=40000, tax=4800
+    // itemTaxableSum = 100000
+
+    // 20% invoice discount = 20000
+    const totals = computeInvoiceTotals(items, DiscountType.PERCENTAGE, 20);
+
+    expect(totals.discountAmount).toBe(20000);
+    // item1 share = 60000/100000 = 60%, discount = 12000, adjusted = 48000, tax = 48000*18/100 = 8640
+    // item2 share = 40000/100000 = 40%, discount = 8000, adjusted = 32000, tax = 32000*12/100 = 3840
+    // total tax = 8640 + 3840 = 12480
+    expect(totals.taxAmount).toBe(12480);
+    expect(totals.total).toBe(92480); // (100000 - 20000) + 12480
+  });
+
+  it("invoice discount capped at taxable sum for fixed discount", () => {
+    const items = [
+      computeLineItem({ quantity: 1, rate: 10000, taxRate: 0 }),
+    ];
+
+    const totals = computeInvoiceTotals(items, DiscountType.FIXED, 50000);
+
+    expect(totals.discountAmount).toBe(10000); // capped at taxable sum
+    expect(totals.total).toBe(0);
+    expect(totals.amountDue).toBe(0);
+  });
 });
