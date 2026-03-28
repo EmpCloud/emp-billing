@@ -1,92 +1,128 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { AuthLayout } from "@/components/layout/AuthLayout";
 import { PortalLayout } from "@/components/layout/PortalLayout";
-
-import { LoginPage } from "@/pages/auth/LoginPage";
-import { RegisterPage } from "@/pages/auth/RegisterPage";
-import { DashboardPage } from "@/pages/dashboard/DashboardPage";
-import { ClientListPage } from "@/pages/clients/ClientListPage";
-import { ClientDetailPage } from "@/pages/clients/ClientDetailPage";
-import { ClientCreatePage } from "@/pages/clients/ClientCreatePage";
-import { ClientEditPage } from "@/pages/clients/ClientEditPage";
-import { InvoiceListPage } from "@/pages/invoices/InvoiceListPage";
-import { InvoiceCreatePage } from "@/pages/invoices/InvoiceCreatePage";
-import { InvoiceDetailPage } from "@/pages/invoices/InvoiceDetailPage";
-import { QuoteListPage } from "@/pages/quotes/QuoteListPage";
-import { QuoteCreatePage } from "@/pages/quotes/QuoteCreatePage";
-import { QuoteDetailPage } from "@/pages/quotes/QuoteDetailPage";
-import { PaymentListPage } from "@/pages/payments/PaymentListPage";
-import { PaymentRecordPage } from "@/pages/payments/PaymentRecordPage";
-import { PaymentDetailPage } from "@/pages/payments/PaymentDetailPage";
-import { VendorListPage } from "@/pages/vendors/VendorListPage";
-import { VendorCreatePage } from "@/pages/vendors/VendorCreatePage";
-import { VendorEditPage } from "@/pages/vendors/VendorEditPage";
-import { VendorDetailPage } from "@/pages/vendors/VendorDetailPage";
-import { ExpenseListPage } from "@/pages/expenses/ExpenseListPage";
-import { ExpenseCreatePage } from "@/pages/expenses/ExpenseCreatePage";
-import { ProductListPage } from "@/pages/products/ProductListPage";
-import { ProductCreatePage } from "@/pages/products/ProductCreatePage";
-import { ReportsPage } from "@/pages/reports/ReportsPage";
-import { SettingsPage } from "@/pages/settings/SettingsPage";
-import { CreditNoteListPage } from "@/pages/credit-notes/CreditNoteListPage";
-import { CreditNoteCreatePage } from "@/pages/credit-notes/CreditNoteCreatePage";
-import { CreditNoteEditPage } from "@/pages/credit-notes/CreditNoteEditPage";
-import { CreditNoteDetailPage } from "@/pages/credit-notes/CreditNoteDetailPage";
-import { RecurringListPage } from "@/pages/recurring/RecurringListPage";
-import { RecurringCreatePage } from "@/pages/recurring/RecurringCreatePage";
-import { RecurringEditPage } from "@/pages/recurring/RecurringEditPage";
-import { RecurringDetailPage } from "@/pages/recurring/RecurringDetailPage";
-import { WebhookListPage } from "@/pages/webhooks/WebhookListPage";
-import { TeamPage } from "@/pages/team/TeamPage";
-import { AuditLogPage } from "@/pages/audit/AuditLogPage";
-import { InvoiceEditPage } from "@/pages/invoices/InvoiceEditPage";
-import { QuoteEditPage } from "@/pages/quotes/QuoteEditPage";
-import { ExpenseDetailPage } from "@/pages/expenses/ExpenseDetailPage";
-import { ExpenseEditPage } from "@/pages/expenses/ExpenseEditPage";
-import { ProductDetailPage } from "@/pages/products/ProductDetailPage";
-import { ProductEditPage } from "@/pages/products/ProductEditPage";
-import { ForgotPasswordPage } from "@/pages/auth/ForgotPasswordPage";
-import { ResetPasswordPage } from "@/pages/auth/ResetPasswordPage";
-import { NotFoundPage } from "@/pages/NotFoundPage";
-
-import { DunningPage } from "@/pages/dunning/DunningPage";
-import { SaaSMetricsPage } from "@/pages/metrics/SaaSMetricsPage";
-
-import { PlanListPage } from "@/pages/subscriptions/PlanListPage";
-import { PlanCreatePage } from "@/pages/subscriptions/PlanCreatePage";
-import { PlanEditPage } from "@/pages/subscriptions/PlanEditPage";
-import { SubscriptionListPage } from "@/pages/subscriptions/SubscriptionListPage";
-import { SubscriptionCreatePage } from "@/pages/subscriptions/SubscriptionCreatePage";
-import { SubscriptionDetailPage } from "@/pages/subscriptions/SubscriptionDetailPage";
-
-import { UsageDashboardPage } from "@/pages/usage/UsageDashboardPage";
-import { CouponListPage } from "@/pages/coupons/CouponListPage";
-import { CouponCreatePage } from "@/pages/coupons/CouponCreatePage";
-import { CouponEditPage } from "@/pages/coupons/CouponEditPage";
-import { CouponDetailPage } from "@/pages/coupons/CouponDetailPage";
-
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 
-import { DisputeListPage } from "@/pages/disputes/DisputeListPage";
-import { DisputeDetailPage } from "@/pages/disputes/DisputeDetailPage";
+// ---------- Lazy-loaded pages ----------
 
-import { ReportBuilder } from "@/pages/reports/ReportBuilder";
-import { SavedReports } from "@/pages/reports/SavedReports";
+// Auth
+const LoginPage = lazy(() => import("@/pages/auth/LoginPage").then((m) => ({ default: m.LoginPage })));
+const RegisterPage = lazy(() => import("@/pages/auth/RegisterPage").then((m) => ({ default: m.RegisterPage })));
+const ForgotPasswordPage = lazy(() => import("@/pages/auth/ForgotPasswordPage").then((m) => ({ default: m.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import("@/pages/auth/ResetPasswordPage").then((m) => ({ default: m.ResetPasswordPage })));
 
-import { PortalLoginPage } from "@/pages/portal/PortalLoginPage";
-import { PortalDashboard } from "@/pages/portal/PortalDashboard";
-import { PortalInvoicesPage } from "@/pages/portal/PortalInvoicesPage";
-import { PortalQuotesPage } from "@/pages/portal/PortalQuotesPage";
-import { PortalPaymentsPage } from "@/pages/portal/PortalPaymentsPage";
-import { PortalCreditNotesPage } from "@/pages/portal/PortalCreditNotesPage";
-import { PortalStatementPage } from "@/pages/portal/PortalStatementPage";
-import { PortalDisputesPage } from "@/pages/portal/PortalDisputesPage";
-import { PortalSubscriptionsPage } from "@/pages/portal/PortalSubscriptionsPage";
-import { PortalSubscriptionDetailPage } from "@/pages/portal/PortalSubscriptionDetailPage";
-import { PortalPaymentMethodPage } from "@/pages/portal/PortalPaymentMethodPage";
+// Dashboard
+const DashboardPage = lazy(() => import("@/pages/dashboard/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+
+// Clients
+const ClientListPage = lazy(() => import("@/pages/clients/ClientListPage").then((m) => ({ default: m.ClientListPage })));
+const ClientDetailPage = lazy(() => import("@/pages/clients/ClientDetailPage").then((m) => ({ default: m.ClientDetailPage })));
+const ClientCreatePage = lazy(() => import("@/pages/clients/ClientCreatePage").then((m) => ({ default: m.ClientCreatePage })));
+const ClientEditPage = lazy(() => import("@/pages/clients/ClientEditPage").then((m) => ({ default: m.ClientEditPage })));
+
+// Invoices
+const InvoiceListPage = lazy(() => import("@/pages/invoices/InvoiceListPage").then((m) => ({ default: m.InvoiceListPage })));
+const InvoiceCreatePage = lazy(() => import("@/pages/invoices/InvoiceCreatePage").then((m) => ({ default: m.InvoiceCreatePage })));
+const InvoiceDetailPage = lazy(() => import("@/pages/invoices/InvoiceDetailPage").then((m) => ({ default: m.InvoiceDetailPage })));
+const InvoiceEditPage = lazy(() => import("@/pages/invoices/InvoiceEditPage").then((m) => ({ default: m.InvoiceEditPage })));
+
+// Quotes
+const QuoteListPage = lazy(() => import("@/pages/quotes/QuoteListPage").then((m) => ({ default: m.QuoteListPage })));
+const QuoteCreatePage = lazy(() => import("@/pages/quotes/QuoteCreatePage").then((m) => ({ default: m.QuoteCreatePage })));
+const QuoteDetailPage = lazy(() => import("@/pages/quotes/QuoteDetailPage").then((m) => ({ default: m.QuoteDetailPage })));
+const QuoteEditPage = lazy(() => import("@/pages/quotes/QuoteEditPage").then((m) => ({ default: m.QuoteEditPage })));
+
+// Payments
+const PaymentListPage = lazy(() => import("@/pages/payments/PaymentListPage").then((m) => ({ default: m.PaymentListPage })));
+const PaymentRecordPage = lazy(() => import("@/pages/payments/PaymentRecordPage").then((m) => ({ default: m.PaymentRecordPage })));
+const PaymentDetailPage = lazy(() => import("@/pages/payments/PaymentDetailPage").then((m) => ({ default: m.PaymentDetailPage })));
+
+// Vendors
+const VendorListPage = lazy(() => import("@/pages/vendors/VendorListPage").then((m) => ({ default: m.VendorListPage })));
+const VendorCreatePage = lazy(() => import("@/pages/vendors/VendorCreatePage").then((m) => ({ default: m.VendorCreatePage })));
+const VendorEditPage = lazy(() => import("@/pages/vendors/VendorEditPage").then((m) => ({ default: m.VendorEditPage })));
+const VendorDetailPage = lazy(() => import("@/pages/vendors/VendorDetailPage").then((m) => ({ default: m.VendorDetailPage })));
+
+// Expenses
+const ExpenseListPage = lazy(() => import("@/pages/expenses/ExpenseListPage").then((m) => ({ default: m.ExpenseListPage })));
+const ExpenseCreatePage = lazy(() => import("@/pages/expenses/ExpenseCreatePage").then((m) => ({ default: m.ExpenseCreatePage })));
+const ExpenseDetailPage = lazy(() => import("@/pages/expenses/ExpenseDetailPage").then((m) => ({ default: m.ExpenseDetailPage })));
+const ExpenseEditPage = lazy(() => import("@/pages/expenses/ExpenseEditPage").then((m) => ({ default: m.ExpenseEditPage })));
+
+// Products
+const ProductListPage = lazy(() => import("@/pages/products/ProductListPage").then((m) => ({ default: m.ProductListPage })));
+const ProductCreatePage = lazy(() => import("@/pages/products/ProductCreatePage").then((m) => ({ default: m.ProductCreatePage })));
+const ProductDetailPage = lazy(() => import("@/pages/products/ProductDetailPage").then((m) => ({ default: m.ProductDetailPage })));
+const ProductEditPage = lazy(() => import("@/pages/products/ProductEditPage").then((m) => ({ default: m.ProductEditPage })));
+
+// Credit Notes
+const CreditNoteListPage = lazy(() => import("@/pages/credit-notes/CreditNoteListPage").then((m) => ({ default: m.CreditNoteListPage })));
+const CreditNoteCreatePage = lazy(() => import("@/pages/credit-notes/CreditNoteCreatePage").then((m) => ({ default: m.CreditNoteCreatePage })));
+const CreditNoteEditPage = lazy(() => import("@/pages/credit-notes/CreditNoteEditPage").then((m) => ({ default: m.CreditNoteEditPage })));
+const CreditNoteDetailPage = lazy(() => import("@/pages/credit-notes/CreditNoteDetailPage").then((m) => ({ default: m.CreditNoteDetailPage })));
+
+// Recurring
+const RecurringListPage = lazy(() => import("@/pages/recurring/RecurringListPage").then((m) => ({ default: m.RecurringListPage })));
+const RecurringCreatePage = lazy(() => import("@/pages/recurring/RecurringCreatePage").then((m) => ({ default: m.RecurringCreatePage })));
+const RecurringEditPage = lazy(() => import("@/pages/recurring/RecurringEditPage").then((m) => ({ default: m.RecurringEditPage })));
+const RecurringDetailPage = lazy(() => import("@/pages/recurring/RecurringDetailPage").then((m) => ({ default: m.RecurringDetailPage })));
+
+// Subscriptions
+const PlanListPage = lazy(() => import("@/pages/subscriptions/PlanListPage").then((m) => ({ default: m.PlanListPage })));
+const PlanCreatePage = lazy(() => import("@/pages/subscriptions/PlanCreatePage").then((m) => ({ default: m.PlanCreatePage })));
+const PlanEditPage = lazy(() => import("@/pages/subscriptions/PlanEditPage").then((m) => ({ default: m.PlanEditPage })));
+const SubscriptionListPage = lazy(() => import("@/pages/subscriptions/SubscriptionListPage").then((m) => ({ default: m.SubscriptionListPage })));
+const SubscriptionCreatePage = lazy(() => import("@/pages/subscriptions/SubscriptionCreatePage").then((m) => ({ default: m.SubscriptionCreatePage })));
+const SubscriptionDetailPage = lazy(() => import("@/pages/subscriptions/SubscriptionDetailPage").then((m) => ({ default: m.SubscriptionDetailPage })));
+
+// Usage, Coupons, Disputes
+const UsageDashboardPage = lazy(() => import("@/pages/usage/UsageDashboardPage").then((m) => ({ default: m.UsageDashboardPage })));
+const CouponListPage = lazy(() => import("@/pages/coupons/CouponListPage").then((m) => ({ default: m.CouponListPage })));
+const CouponCreatePage = lazy(() => import("@/pages/coupons/CouponCreatePage").then((m) => ({ default: m.CouponCreatePage })));
+const CouponEditPage = lazy(() => import("@/pages/coupons/CouponEditPage").then((m) => ({ default: m.CouponEditPage })));
+const CouponDetailPage = lazy(() => import("@/pages/coupons/CouponDetailPage").then((m) => ({ default: m.CouponDetailPage })));
+const DisputeListPage = lazy(() => import("@/pages/disputes/DisputeListPage").then((m) => ({ default: m.DisputeListPage })));
+const DisputeDetailPage = lazy(() => import("@/pages/disputes/DisputeDetailPage").then((m) => ({ default: m.DisputeDetailPage })));
+
+// Other admin pages
+const WebhookListPage = lazy(() => import("@/pages/webhooks/WebhookListPage").then((m) => ({ default: m.WebhookListPage })));
+const TeamPage = lazy(() => import("@/pages/team/TeamPage").then((m) => ({ default: m.TeamPage })));
+const AuditLogPage = lazy(() => import("@/pages/audit/AuditLogPage").then((m) => ({ default: m.AuditLogPage })));
+const DunningPage = lazy(() => import("@/pages/dunning/DunningPage").then((m) => ({ default: m.DunningPage })));
+const SaaSMetricsPage = lazy(() => import("@/pages/metrics/SaaSMetricsPage").then((m) => ({ default: m.SaaSMetricsPage })));
+const ReportsPage = lazy(() => import("@/pages/reports/ReportsPage").then((m) => ({ default: m.ReportsPage })));
+const ReportBuilder = lazy(() => import("@/pages/reports/ReportBuilder").then((m) => ({ default: m.ReportBuilder })));
+const SavedReports = lazy(() => import("@/pages/reports/SavedReports").then((m) => ({ default: m.SavedReports })));
+const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
+
+// Portal
+const PortalLoginPage = lazy(() => import("@/pages/portal/PortalLoginPage").then((m) => ({ default: m.PortalLoginPage })));
+const PortalDashboard = lazy(() => import("@/pages/portal/PortalDashboard").then((m) => ({ default: m.PortalDashboard })));
+const PortalInvoicesPage = lazy(() => import("@/pages/portal/PortalInvoicesPage").then((m) => ({ default: m.PortalInvoicesPage })));
+const PortalQuotesPage = lazy(() => import("@/pages/portal/PortalQuotesPage").then((m) => ({ default: m.PortalQuotesPage })));
+const PortalPaymentsPage = lazy(() => import("@/pages/portal/PortalPaymentsPage").then((m) => ({ default: m.PortalPaymentsPage })));
+const PortalCreditNotesPage = lazy(() => import("@/pages/portal/PortalCreditNotesPage").then((m) => ({ default: m.PortalCreditNotesPage })));
+const PortalStatementPage = lazy(() => import("@/pages/portal/PortalStatementPage").then((m) => ({ default: m.PortalStatementPage })));
+const PortalDisputesPage = lazy(() => import("@/pages/portal/PortalDisputesPage").then((m) => ({ default: m.PortalDisputesPage })));
+const PortalSubscriptionsPage = lazy(() => import("@/pages/portal/PortalSubscriptionsPage").then((m) => ({ default: m.PortalSubscriptionsPage })));
+const PortalSubscriptionDetailPage = lazy(() => import("@/pages/portal/PortalSubscriptionDetailPage").then((m) => ({ default: m.PortalSubscriptionDetailPage })));
+const PortalPaymentMethodPage = lazy(() => import("@/pages/portal/PortalPaymentMethodPage").then((m) => ({ default: m.PortalPaymentMethodPage })));
+
+// ---------- Spinner fallback ----------
+
+function PageLoader() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+    </div>
+  );
+}
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 5 * 60 * 1000, retry: 1 } },
@@ -97,6 +133,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
       <BrowserRouter>
+        <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* Auth */}
           <Route element={<AuthLayout />}>
@@ -202,6 +239,7 @@ export default function App() {
           {/* 404 Catch-all */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
       </ErrorBoundary>
     </QueryClientProvider>
