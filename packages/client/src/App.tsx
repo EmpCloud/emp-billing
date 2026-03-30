@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -129,6 +129,17 @@ const queryClient = new QueryClient({
 });
 
 export default function App() {
+  // Detect SSO arrival: if ?sso_token= is present, remember the EMP Cloud return URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('sso_token')) {
+      localStorage.setItem(
+        'empcloud_return_url',
+        window.location.origin.replace(/billing[^.]*/i, 'cloud') + '/dashboard'
+      );
+    }
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>

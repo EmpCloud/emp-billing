@@ -12,6 +12,7 @@ import { useAuthStore } from "@/store/auth.store";
 import { useLogout } from "@/api/hooks/auth.hooks";
 import { GlobalSearch } from "@/components/common/GlobalSearch";
 import { NotificationCenter } from "@/components/common/NotificationCenter";
+import { BackToCloud } from "@/components/common/BackToCloud";
 
 const NAV = [
   { label: "Dashboard",  href: "/dashboard",  icon: LayoutDashboard },
@@ -127,6 +128,7 @@ export function DashboardLayout() {
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Top bar */}
         <header className="h-14 bg-white border-b border-gray-100 flex items-center px-6 flex-shrink-0">
+          <BackToCloud />
           <GlobalSearch />
           <div className="ml-auto flex items-center gap-3 text-sm text-gray-600">
             <NotificationCenter />
