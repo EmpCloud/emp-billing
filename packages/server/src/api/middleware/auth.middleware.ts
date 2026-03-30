@@ -35,6 +35,21 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
 
   const token = authHeader.slice(7);
 
+  // Check if this is the EmpCloud integration API key
+  const empcloudApiKey = config.empcloud?.apiKey || process.env.EMPCLOUD_API_KEY;
+  if (empcloudApiKey && token === empcloudApiKey) {
+    req.user = {
+      id: "empcloud-system",
+      email: "system@empcloud.com",
+      role: UserRole.ADMIN as AuthUser["role"],
+      orgId: "",
+      orgName: "EmpCloud",
+      firstName: "EmpCloud",
+      lastName: "System",
+    };
+    return next();
+  }
+
   // Check if this is an API key (starts with empb_)
   if (token.startsWith(API_KEY_PREFIX)) {
     // API key auth — async path
