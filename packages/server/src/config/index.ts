@@ -127,6 +127,11 @@ export const config = {
   // Custom domains
   defaultDomain: optional("DEFAULT_DOMAIN", "billing.empcloud.com"),
 
+  // EmpCloud integration
+  empcloud: {
+    apiKey: optional("EMPCLOUD_API_KEY", ""),
+  },
+
   // Bcrypt
   bcryptRounds: parseInt(optional("BCRYPT_ROUNDS", "12")),
 
