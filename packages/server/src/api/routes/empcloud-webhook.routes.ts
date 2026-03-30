@@ -144,6 +144,10 @@ router.post("/", asyncHandler(async (req, res) => {
     return;
   }
 
+  // Find a system user to attribute records to (needed for FK constraints)
+  const systemUser = await db.findOne<{ id: string }>("users", { org_id: orgId, role: "owner" });
+  const createdBy = systemUser?.id || "system";
+
   switch (eventType) {
     case "subscription.created": {
       // Find or create client for this EmpCloud org
@@ -222,7 +226,7 @@ router.post("/", asyncHandler(async (req, res) => {
           module_slug: body.module_slug,
         }),
         autoRenew: true,
-        createdBy: "empcloud-webhook",
+        createdBy,
         createdAt: now,
         updatedAt: now,
       });
@@ -248,7 +252,7 @@ router.post("/", asyncHandler(async (req, res) => {
         amountDue: lineTotal,
         currency: body.currency || "INR",
         notes: `Auto-generated invoice for ${body.module_name || body.module_slug} subscription (EmpCloud org ${body.organization_id})`,
-        createdBy: "empcloud-webhook",
+        createdBy,
         createdAt: now,
         updatedAt: now,
       });
