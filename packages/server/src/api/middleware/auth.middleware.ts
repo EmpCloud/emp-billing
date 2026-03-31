@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { config } from "../../config/index";
 import { UnauthorizedError } from "../../utils/AppError";
 import type { AuthUser } from "@emp-billing/shared";
+import { getDB } from "../../db/connection";
 import { UserRole } from "@emp-billing/shared";
 import { validateApiKey } from "../../services/auth/api-key.service";
 
@@ -40,14 +41,9 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   if (empcloudApiKey && token === empcloudApiKey) {
     // Look up the first active org in billing DB for the system user
     // This allows the EmpCloud proxy to query invoices/payments scoped to the org
-    const getFirstOrgId = async () => {
-      try {
-        const { getDB } = await import("../../db/connection" as string);
-        const org = await getDB()("organizations").where({ is_active: true }).select("id").first();
-        return org?.id || "";
-      } catch { return ""; }
-    };
-    getFirstOrgId().then((orgId) => {
+    const db = getDB();
+    db("organizations").where({ is_active: true }).select("id").first().then((org: any) => {
+      const orgId = org?.id || "";
       req.user = {
         id: "empcloud-system",
         email: "system@empcloud.com",
