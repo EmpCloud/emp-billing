@@ -239,6 +239,8 @@ export class StripeGateway implements IPaymentGateway {
           metadata: {
             invoiceId: intent.metadata?.invoiceId,
             invoiceNumber: intent.metadata?.invoiceNumber,
+            orgId: intent.metadata?.orgId,
+            clientId: intent.metadata?.clientId,
           },
         };
       }
