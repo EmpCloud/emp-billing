@@ -1,4 +1,5 @@
 import { logger } from "../../../utils/logger";
+import { convertAmount } from "../../currency/exchange-rate.service";
 import type {
   IPaymentGateway,
   CreateOrderInput,
@@ -69,6 +70,15 @@ interface PayPalRefundResponse {
   status: string;
   amount: { currency_code: string; value: string };
 }
+
+// PayPal supported currencies — INR is NOT supported by PayPal sandbox or many
+// merchant accounts. Unsupported currencies are auto-converted to USD at checkout.
+// See: https://developer.paypal.com/docs/reports/reference/paypal-supported-currencies/
+const PAYPAL_SUPPORTED_CURRENCIES = new Set([
+  "AUD", "BRL", "CAD", "CNY", "CZK", "DKK", "EUR", "GBP", "HKD", "HUF",
+  "ILS", "JPY", "MYR", "MXN", "TWD", "NZD", "NOK", "PHP", "PLN", "RUB",
+  "SGD", "SEK", "CHF", "THB", "USD",
+]);
 
 export class PayPalGateway implements IPaymentGateway {
   readonly name = "paypal";
@@ -193,6 +203,42 @@ export class PayPalGateway implements IPaymentGateway {
   // ── Interface Implementation ─────────────────────────────────────────────
 
   async createOrder(input: CreateOrderInput): Promise<CreateOrderResult> {
+    // PayPal doesn't support all currencies (notably INR).
+    // Convert unsupported currencies to USD using live exchange rates.
+    let paypalAmount = input.amount;
+    let paypalCurrency = input.currency.toUpperCase();
+    let converted = false;
+
+    if (!PAYPAL_SUPPORTED_CURRENCIES.has(paypalCurrency)) {
+      const fallback = "USD";
+      try {
+        paypalAmount = await convertAmount(input.amount, paypalCurrency, fallback);
+        logger.info(
+          `PayPal currency conversion: ${paypalCurrency} ${this.toDecimal(input.amount, input.currency)} → ` +
+            `${fallback} ${this.toDecimal(paypalAmount, fallback)} for invoice ${input.invoiceNumber}`
+        );
+        converted = true;
+        paypalCurrency = fallback;
+      } catch (err) {
+        // If exchange rate API is down, use a hardcoded fallback rate for INR
+        if (input.currency.toUpperCase() === "INR") {
+          const INR_TO_USD_FALLBACK = 83;
+          paypalAmount = Math.round(input.amount / INR_TO_USD_FALLBACK);
+          logger.warn(
+            `Exchange rate API unavailable — using fallback INR→USD rate (1:${INR_TO_USD_FALLBACK}) ` +
+              `for invoice ${input.invoiceNumber}`
+          );
+          converted = true;
+          paypalCurrency = fallback;
+        } else {
+          throw new Error(
+            `Currency ${input.currency} is not supported by PayPal and exchange rate conversion failed: ` +
+              `${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+    }
+
     const order = await this.paypalRequest<PayPalOrderResponse>("POST", "/v2/checkout/orders", {
       intent: "CAPTURE",
       purchase_units: [
@@ -201,8 +247,8 @@ export class PayPalGateway implements IPaymentGateway {
           custom_id: input.invoiceId,
           description: input.description || `Invoice ${input.invoiceNumber}`,
           amount: {
-            currency_code: input.currency.toUpperCase(),
-            value: this.toDecimal(input.amount, input.currency),
+            currency_code: paypalCurrency,
+            value: this.toDecimal(paypalAmount, paypalCurrency),
           },
           invoice_id: input.invoiceNumber,
         },
@@ -231,6 +277,12 @@ export class PayPalGateway implements IPaymentGateway {
       metadata: {
         orderId: order.id,
         status: order.status,
+        ...(converted && {
+          originalCurrency: input.currency.toUpperCase(),
+          originalAmount: input.amount,
+          convertedCurrency: paypalCurrency,
+          convertedAmount: paypalAmount,
+        }),
       },
     };
   }
@@ -274,6 +326,27 @@ export class PayPalGateway implements IPaymentGateway {
     // PayPal uses Billing Agreements / vault tokens for recurring charges.
     // The paymentMethodId here is a PayPal vault payment token.
     try {
+      // Convert unsupported currencies to USD (same as createOrder)
+      let paypalAmount = input.amount;
+      let paypalCurrency = input.currency.toUpperCase();
+
+      if (!PAYPAL_SUPPORTED_CURRENCIES.has(paypalCurrency)) {
+        const fallback = "USD";
+        try {
+          paypalAmount = await convertAmount(input.amount, paypalCurrency, fallback);
+        } catch {
+          if (paypalCurrency === "INR") {
+            paypalAmount = Math.round(input.amount / 83);
+          } else {
+            throw new Error(`Currency ${paypalCurrency} is not supported by PayPal`);
+          }
+        }
+        logger.info(
+          `PayPal chargeCustomer currency conversion: ${input.currency} → ${fallback} for invoice ${input.invoiceNumber}`
+        );
+        paypalCurrency = fallback;
+      }
+
       const order = await this.paypalRequest<PayPalOrderResponse>("POST", "/v2/checkout/orders", {
         intent: "CAPTURE",
         purchase_units: [
@@ -282,8 +355,8 @@ export class PayPalGateway implements IPaymentGateway {
             custom_id: input.invoiceId,
             description: input.description || `Payment for invoice ${input.invoiceNumber}`,
             amount: {
-              currency_code: input.currency.toUpperCase(),
-              value: this.toDecimal(input.amount, input.currency),
+              currency_code: paypalCurrency,
+              value: this.toDecimal(paypalAmount, paypalCurrency),
             },
             invoice_id: input.invoiceNumber,
           },
