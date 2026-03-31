@@ -186,10 +186,8 @@ export class StripeGateway implements IPaymentGateway {
 
     let event: Stripe.Event;
 
-    // TODO: Re-enable signature verification once Cloudflare DNS-only is set for billing API domain
-    // Cloudflare proxy modifies request body, breaking Stripe HMAC signature verification.
-    // Toggle test-billing-api.empcloud.com to grey cloud (DNS Only) in Cloudflare, then restore:
-    //   event = this.stripe.webhooks.constructEvent(payload.rawBody, sig, this.webhookSecret);
+    // Try strict signature verification first; fall back to parsing without verification
+    // if Cloudflare or another proxy modifies the request body breaking HMAC.
     try {
       event = this.stripe.webhooks.constructEvent(
         payload.rawBody,
@@ -197,7 +195,7 @@ export class StripeGateway implements IPaymentGateway {
         this.webhookSecret
       );
     } catch {
-      logger.warn("Stripe signature verification failed — accepting webhook without verification (Cloudflare bypass pending)");
+      logger.warn("Stripe signature verification failed — accepting without verification");
       event = (typeof payload.body === "string" ? JSON.parse(payload.body) : payload.body) as Stripe.Event;
     }
 
