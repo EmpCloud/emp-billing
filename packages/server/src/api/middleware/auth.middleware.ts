@@ -38,15 +38,39 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   // Check if this is the EmpCloud integration API key
   const empcloudApiKey = config.empcloud?.apiKey || process.env.EMPCLOUD_API_KEY;
   if (empcloudApiKey && token === empcloudApiKey) {
-    req.user = {
-      id: "empcloud-system",
-      email: "system@empcloud.com",
-      role: UserRole.ADMIN as AuthUser["role"],
-      orgId: "",
-      orgName: "EmpCloud",
-      firstName: "EmpCloud",
-      lastName: "System",
+    // Look up the first active org in billing DB for the system user
+    // This allows the EmpCloud proxy to query invoices/payments scoped to the org
+    const getFirstOrgId = async () => {
+      try {
+        const { getDB } = await import("../../db/connection" as string);
+        const org = await getDB()("organizations").where({ is_active: true }).select("id").first();
+        return org?.id || "";
+      } catch { return ""; }
     };
+    getFirstOrgId().then((orgId) => {
+      req.user = {
+        id: "empcloud-system",
+        email: "system@empcloud.com",
+        role: UserRole.ADMIN as AuthUser["role"],
+        orgId,
+        orgName: "EmpCloud",
+        firstName: "EmpCloud",
+        lastName: "System",
+      };
+      next();
+    }).catch(() => {
+      req.user = {
+        id: "empcloud-system",
+        email: "system@empcloud.com",
+        role: UserRole.ADMIN as AuthUser["role"],
+        orgId: "",
+        orgName: "EmpCloud",
+        firstName: "EmpCloud",
+        lastName: "System",
+      };
+      next();
+    });
+    return;
     return next();
   }
 
