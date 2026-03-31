@@ -54,8 +54,10 @@ export async function createPaymentOrder(
 
   const gateway = getGateway(gatewayName);
 
-  // Build portal base URL from CORS origin (the client app origin)
-  const portalBaseUrl = `${config.corsOrigin}/portal`;
+  // Build portal base URL — CORS_ORIGIN may be comma-separated, pick the first HTTPS origin
+  const origins = String(config.corsOrigin || "").split(",").map((s) => s.trim());
+  const baseOrigin = origins.find((o) => o.startsWith("https://")) || origins[0] || "";
+  const portalBaseUrl = `${baseOrigin}/portal`;
   const successUrl = process.env.STRIPE_SUCCESS_URL || `${portalBaseUrl}/invoices?payment=success`;
   const cancelUrl = process.env.STRIPE_CANCEL_URL || `${portalBaseUrl}/invoices?payment=cancelled`;
 
