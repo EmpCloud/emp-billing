@@ -41,31 +41,32 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   if (empcloudApiKey && token === empcloudApiKey) {
     // Look up the first active org in billing DB for the system user
     // This allows the EmpCloud proxy to query invoices/payments scoped to the org
-    const db = getDB();
-    db("organizations").where({ is_active: true }).select("id").first().then((org: any) => {
-      const orgId = org?.id || "";
-      req.user = {
-        id: "empcloud-system",
-        email: "system@empcloud.com",
-        role: UserRole.ADMIN as AuthUser["role"],
-        orgId,
-        orgName: "EmpCloud",
-        firstName: "EmpCloud",
-        lastName: "System",
-      };
-      next();
-    }).catch(() => {
-      req.user = {
-        id: "empcloud-system",
-        email: "system@empcloud.com",
-        role: UserRole.ADMIN as AuthUser["role"],
-        orgId: "",
-        orgName: "EmpCloud",
-        firstName: "EmpCloud",
-        lastName: "System",
-      };
-      next();
-    });
+    getDB()
+      .then((db) => db.findOne<{ id: string }>("organizations", { is_active: true }))
+      .then((org) => {
+        req.user = {
+          id: "empcloud-system",
+          email: "system@empcloud.com",
+          role: UserRole.ADMIN as AuthUser["role"],
+          orgId: org?.id || "",
+          orgName: "EmpCloud",
+          firstName: "EmpCloud",
+          lastName: "System",
+        };
+        next();
+      })
+      .catch(() => {
+        req.user = {
+          id: "empcloud-system",
+          email: "system@empcloud.com",
+          role: UserRole.ADMIN as AuthUser["role"],
+          orgId: "",
+          orgName: "EmpCloud",
+          firstName: "EmpCloud",
+          lastName: "System",
+        };
+        next();
+      });
     return;
   }
 
