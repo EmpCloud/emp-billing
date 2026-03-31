@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { config } from "../../config/index";
 import { UnauthorizedError } from "../../utils/AppError";
 import type { AuthUser } from "@emp-billing/shared";
-import { getDB } from "../../db/connection";
+import { getDB } from "../../db/adapters/index";
 import { UserRole } from "@emp-billing/shared";
 import { validateApiKey } from "../../services/auth/api-key.service";
 
@@ -67,7 +67,6 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
       next();
     });
     return;
-    return next();
   }
 
   // Check if this is an API key (starts with empb_)
