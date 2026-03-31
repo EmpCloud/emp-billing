@@ -13,6 +13,55 @@ EMP Billing is the internal billing engine of the [EmpCloud](https://empcloud.co
 
 ---
 
+## Integration with EMP Cloud — Data Architecture
+
+EMP Billing and EMP Cloud maintain **separate databases with zero data redundancy**. Each system owns distinct responsibilities:
+
+```
+EMP Cloud (empcloud DB)                    EMP Billing (emp_billing DB)
+───────────────────────                    ──────────────────────────────
+"Who can access what?"                     "Who owes what?"
+
+org_subscriptions                          subscriptions
+ → Module access, seats, status             → Billing lifecycle, auto-renew
+
+org_module_seats                           invoices + invoice_items
+ → User seat assignments                    → Invoice records, PDF, tax
+
+organizations                              organizations
+ → Org management (users, depts)            → Billing config (prefix, tax ID)
+
+billing_client_mappings ──────────────────→ clients
+ → Bridge: empcloud org → billing client    → Billing profile, balance
+
+billing_subscription_mappings ────────────→ subscriptions
+ → Bridge: cloud sub → billing sub          → Billing sub lifecycle
+```
+
+**How they communicate:**
+1. **EMP Cloud → Billing**: HTTP API via `BILLING_API_KEY` (Bearer token)
+   - `POST /webhooks/empcloud` — notify on subscription create/update/cancel
+   - `GET /invoices`, `GET /payments` — proxy for Cloud dashboard
+   - `POST /payments/online/create-order` — initiate gateway checkout
+
+2. **Billing → EMP Cloud**: Webhooks with HMAC-SHA256 signature
+   - `invoice.paid` → Cloud marks subscription active
+   - `subscription.payment_failed` → Cloud marks subscription past_due
+   - `invoice.overdue` → Cloud triggers dunning flow
+
+**Multi-currency (auto-detected by org country):**
+
+| Region | Currency | Price/User/Month | Gateways |
+|--------|----------|------------------|----------|
+| India | INR ₹ | ₹100 (10,000 paise) | Razorpay, PayPal |
+| USA & others | USD $ | $1.00 (100 cents) | Stripe, PayPal |
+| UK | GBP £ | £1.00 (100 pence) | Stripe, PayPal |
+| Europe | EUR € | €1.00 (100 cents) | Stripe, PayPal |
+
+**Key rule:** EMP Cloud's billing code is a thin HTTP proxy — ALL invoicing, payment processing, dunning, tax calculation, and financial logic lives HERE in EMP Billing. No duplication.
+
+---
+
 ## Table of Contents
 
 - [Features](#features)
