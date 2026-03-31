@@ -2,7 +2,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import jwt from "jsonwebtoken";
 
 vi.mock("../../config/index", () => ({
-  config: { jwt: { accessSecret: "test-secret" } },
+  config: { jwt: { accessSecret: "test-secret" }, empcloud: { apiKey: "" } },
+}));
+
+vi.mock("../../db/adapters/index", () => ({
+  getDB: vi.fn().mockResolvedValue({ findOne: vi.fn().mockResolvedValue(null) }),
+}));
+
+vi.mock("../../services/auth/api-key.service", () => ({
+  validateApiKey: vi.fn().mockRejectedValue(new Error("invalid")),
+}));
+
+vi.mock("@emp-billing/shared", () => ({
+  UserRole: { ADMIN: "admin" },
 }));
 
 import { authenticate, optionalAuth } from "./auth.middleware";
