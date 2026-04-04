@@ -214,7 +214,9 @@ describe("ApiKeyService — CRUD and validation", () => {
     expect(row.key_hash).toBe(keyHash);
     expect(row.key_prefix).toBe(keyPrefix);
     expect(row.is_active).toBeTruthy();
-    expect(JSON.parse(row.scopes)).toEqual(["invoices:read", "payments:write"]);
+    // MySQL JSON columns may return already-parsed objects or strings
+    const scopes = typeof row.scopes === "string" ? JSON.parse(row.scopes) : row.scopes;
+    expect(scopes).toEqual(["invoices:read", "payments:write"]);
   });
 
   it("should validate API key by hash lookup", async () => {
@@ -734,7 +736,8 @@ describe("DunningService — config and retry attempts", () => {
     const row = await db("dunning_configs").where({ id }).first();
     expect(row).toBeTruthy();
     expect(row.max_retries).toBe(4);
-    expect(JSON.parse(row.retry_schedule)).toEqual([1, 3, 5, 7]);
+    const schedule = typeof row.retry_schedule === "string" ? JSON.parse(row.retry_schedule) : row.retry_schedule;
+    expect(schedule).toEqual([1, 3, 5, 7]);
     expect(row.grace_period_days).toBe(3);
     expect(row.cancel_after_all_retries).toBeTruthy();
   });
@@ -751,7 +754,8 @@ describe("DunningService — config and retry attempts", () => {
 
     const updated = await db("dunning_configs").where({ id: existing.id }).first();
     expect(updated.max_retries).toBe(6);
-    expect(JSON.parse(updated.retry_schedule)).toEqual([1, 2, 4, 7, 10, 14]);
+    const updatedSchedule = typeof updated.retry_schedule === "string" ? JSON.parse(updated.retry_schedule) : updated.retry_schedule;
+    expect(updatedSchedule).toEqual([1, 2, 4, 7, 10, 14]);
   });
 
   it("should create a dunning attempt (pending)", async () => {
@@ -1701,7 +1705,7 @@ describe("OnlinePaymentService — payment recording and deduplication", () => {
         id,
         org_id: TEST_ORG_ID,
         client_id: TEST_CLIENT_ID,
-        invoice_number: `TINV-${TS}-${status.toUpperCase()}`,
+        invoice_number: `TINV-${TS}-OP-${status.toUpperCase()}`,
         status,
         issue_date: "2026-04-01",
         due_date: "2026-05-01",
