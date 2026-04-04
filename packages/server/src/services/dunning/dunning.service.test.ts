@@ -170,6 +170,215 @@ describe("dunning.service", () => {
       }), ORG_ID);
     });
 
+    it("fails with retry when payment declined and more retries left", async () => {
+      const { getGateway } = await import("../payment/gateways/index");
+      const mockGateway = { chargeCustomer: vi.fn().mockResolvedValue({ success: false, error: "Declined" }) };
+      (getGateway as any).mockReturnValue(mockGateway);
+
+      mockDb.findById
+        .mockResolvedValueOnce({
+          id: "da-1",
+          orgId: ORG_ID,
+          invoiceId: "inv-1",
+          subscriptionId: "sub-1",
+          attemptNumber: 1,
+        }) // attempt
+        .mockResolvedValueOnce({
+          id: "inv-1",
+          orgId: ORG_ID,
+          clientId: "cli-1",
+          invoiceNumber: "INV-001",
+          status: InvoiceStatus.SENT,
+          amountDue: 10000,
+          amountPaid: 0,
+          total: 10000,
+          currency: "INR",
+        }) // invoice
+        .mockResolvedValueOnce({
+          id: "cli-1",
+          email: "test@example.com",
+          paymentGateway: "stripe",
+          paymentMethodId: "pm_123",
+        }) // client for charge
+        .mockResolvedValueOnce({
+          id: "cli-1",
+          email: "test@example.com",
+        }); // client for reminder email
+
+      // Config: maxRetries=4
+      mockDb.findMany.mockResolvedValue([]);
+
+      await processDunningAttempt("da-1");
+
+      // Should mark current attempt as failed
+      expect(mockDb.update).toHaveBeenCalledWith("dunning_attempts", "da-1", expect.objectContaining({
+        status: DunningAttemptStatus.FAILED,
+        paymentError: "Declined",
+      }), ORG_ID);
+
+      // Should create next attempt
+      expect(mockDb.create).toHaveBeenCalledWith("dunning_attempts", expect.objectContaining({
+        invoiceId: "inv-1",
+        attemptNumber: 2,
+        status: DunningAttemptStatus.PENDING,
+      }));
+    });
+
+    it("cancels subscription after exhausting all retries", async () => {
+      const { getGateway } = await import("../payment/gateways/index");
+      const mockGateway = { chargeCustomer: vi.fn().mockResolvedValue({ success: false, error: "Declined" }) };
+      (getGateway as any).mockReturnValue(mockGateway);
+
+      mockDb.findById
+        .mockResolvedValueOnce({
+          id: "da-1",
+          orgId: ORG_ID,
+          invoiceId: "inv-1",
+          subscriptionId: "sub-1",
+          attemptNumber: 4, // max retries = 4
+        })
+        .mockResolvedValueOnce({
+          id: "inv-1",
+          orgId: ORG_ID,
+          clientId: "cli-1",
+          invoiceNumber: "INV-001",
+          status: InvoiceStatus.SENT,
+          amountDue: 10000,
+          amountPaid: 0,
+          total: 10000,
+          currency: "INR",
+        })
+        .mockResolvedValueOnce({
+          id: "cli-1",
+          email: "test@example.com",
+          paymentGateway: "stripe",
+          paymentMethodId: "pm_123",
+        })
+        .mockResolvedValueOnce({ id: "cli-1", email: "test@example.com" }) // final notice
+        .mockResolvedValueOnce({ id: "cli-1", email: "test@example.com" }); // retry failed email
+
+      mockDb.findMany.mockResolvedValue([]); // default config
+      mockDb.count.mockResolvedValue(0);
+
+      await processDunningAttempt("da-1");
+
+      // Should cancel subscription
+      expect(mockDb.update).toHaveBeenCalledWith("subscriptions", "sub-1", expect.objectContaining({
+        status: "cancelled",
+        cancelReason: expect.stringContaining("dunning"),
+      }), ORG_ID);
+
+      // Should create subscription event
+      expect(mockDb.create).toHaveBeenCalledWith("subscription_events", expect.objectContaining({
+        subscriptionId: "sub-1",
+        eventType: "payment_failed",
+      }));
+    });
+
+    it("processes successful payment and records it", async () => {
+      const { getGateway } = await import("../payment/gateways/index");
+      const mockGateway = {
+        chargeCustomer: vi.fn().mockResolvedValue({
+          success: true,
+          gatewayTransactionId: "txn_abc123",
+        }),
+      };
+      (getGateway as any).mockReturnValue(mockGateway);
+
+      mockDb.findById
+        .mockResolvedValueOnce({
+          id: "da-1",
+          orgId: ORG_ID,
+          invoiceId: "inv-1",
+          subscriptionId: null,
+          attemptNumber: 2,
+        })
+        .mockResolvedValueOnce({
+          id: "inv-1",
+          orgId: ORG_ID,
+          clientId: "cli-1",
+          invoiceNumber: "INV-001",
+          status: InvoiceStatus.SENT,
+          amountDue: 5000,
+          amountPaid: 0,
+          total: 5000,
+          currency: "INR",
+        })
+        .mockResolvedValueOnce({
+          id: "cli-1",
+          email: "test@example.com",
+          paymentGateway: "razorpay",
+          paymentMethodId: "pm_456",
+        });
+
+      mockDb.findMany.mockResolvedValue([]); // default config
+      mockDb.count.mockResolvedValue(5); // payment count for number generation
+
+      await processDunningAttempt("da-1");
+
+      // Should mark attempt as success
+      expect(mockDb.update).toHaveBeenCalledWith("dunning_attempts", "da-1", expect.objectContaining({
+        status: DunningAttemptStatus.SUCCESS,
+      }), ORG_ID);
+
+      // Should create payment record
+      expect(mockDb.create).toHaveBeenCalledWith("payments", expect.objectContaining({
+        amount: 5000,
+        gatewayTransactionId: "txn_abc123",
+      }));
+
+      // Should create payment allocation
+      expect(mockDb.create).toHaveBeenCalledWith("payment_allocations", expect.objectContaining({
+        invoiceId: "inv-1",
+        amount: 5000,
+      }));
+
+      // Should update invoice status to PAID
+      expect(mockDb.update).toHaveBeenCalledWith("invoices", "inv-1", expect.objectContaining({
+        status: InvoiceStatus.PAID,
+        amountDue: 0,
+      }), ORG_ID);
+    });
+
+    it("handles no saved payment method", async () => {
+      mockDb.findById
+        .mockResolvedValueOnce({
+          id: "da-1",
+          orgId: ORG_ID,
+          invoiceId: "inv-1",
+          subscriptionId: null,
+          attemptNumber: 1,
+        })
+        .mockResolvedValueOnce({
+          id: "inv-1",
+          orgId: ORG_ID,
+          clientId: "cli-1",
+          invoiceNumber: "INV-001",
+          status: InvoiceStatus.SENT,
+          amountDue: 5000,
+          amountPaid: 0,
+          total: 5000,
+          currency: "INR",
+        })
+        .mockResolvedValueOnce({
+          id: "cli-1",
+          email: "test@example.com",
+          paymentGateway: null,
+          paymentMethodId: null,
+        })
+        .mockResolvedValueOnce({ id: "cli-1", email: "test@example.com" }); // reminder email
+
+      mockDb.findMany.mockResolvedValue([]);
+
+      await processDunningAttempt("da-1");
+
+      // Should fail with "No saved payment method on file"
+      expect(mockDb.update).toHaveBeenCalledWith("dunning_attempts", "da-1", expect.objectContaining({
+        status: DunningAttemptStatus.FAILED,
+        paymentError: "No saved payment method on file",
+      }), ORG_ID);
+    });
+
     it("skips when invoice not found", async () => {
       mockDb.findById.mockResolvedValueOnce({
         id: "da-1",

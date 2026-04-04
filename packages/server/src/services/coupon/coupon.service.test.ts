@@ -282,6 +282,55 @@ describe("coupon.service", () => {
     });
   });
 
+  describe("applyCouponToSubscription", () => {
+    it("applies coupon to subscription successfully", async () => {
+      mockDb.findById
+        .mockResolvedValueOnce({ id: "sub-1", planId: "plan-1", quantity: 2, couponId: null }) // subscription
+        .mockResolvedValueOnce({ id: "plan-1", price: 10000 }); // plan
+      mockDb.findOne.mockResolvedValue(makeCoupon({ appliesTo: CouponAppliesTo.SUBSCRIPTION }));
+
+      const result = await applyCouponToSubscription(ORG_ID, "SAVE10", "sub-1", "client-1");
+
+      expect(result.discountAmount).toBe(2000); // 10% of 20000 (10000 * 2)
+      expect(result.subscriptionId).toBe("sub-1");
+      expect(mockDb.update).toHaveBeenCalledWith("subscriptions", "sub-1", expect.objectContaining({
+        couponId: "cpn-1",
+        couponDiscountAmount: 2000,
+      }), ORG_ID);
+    });
+
+    it("throws when subscription already has a coupon", async () => {
+      mockDb.findById.mockResolvedValueOnce({ id: "sub-1", couponId: "existing-coupon" });
+
+      await expect(applyCouponToSubscription(ORG_ID, "SAVE10", "sub-1", "client-1")).rejects.toThrow("already has a coupon");
+    });
+
+    it("throws when subscription not found", async () => {
+      mockDb.findById.mockResolvedValueOnce(null);
+
+      await expect(applyCouponToSubscription(ORG_ID, "SAVE10", "missing", "client-1")).rejects.toThrow("Subscription");
+    });
+
+    it("throws when coupon cannot be applied to subscriptions", async () => {
+      mockDb.findById
+        .mockResolvedValueOnce({ id: "sub-1", planId: "plan-1", quantity: 1, couponId: null })
+        .mockResolvedValueOnce({ id: "plan-1", price: 5000 });
+      // Coupon that only applies to products, not subscriptions or invoices
+      mockDb.findOne.mockResolvedValue(makeCoupon({ appliesTo: CouponAppliesTo.PRODUCT }));
+
+      await expect(applyCouponToSubscription(ORG_ID, "SAVE10", "sub-1", "client-1")).rejects.toThrow("cannot be applied to subscriptions");
+    });
+
+    it("throws when discount amount is zero", async () => {
+      mockDb.findById
+        .mockResolvedValueOnce({ id: "sub-1", planId: "plan-1", quantity: 1, couponId: null })
+        .mockResolvedValueOnce({ id: "plan-1", price: 0 }); // zero price
+      mockDb.findOne.mockResolvedValue(makeCoupon({ appliesTo: CouponAppliesTo.SUBSCRIPTION }));
+
+      await expect(applyCouponToSubscription(ORG_ID, "SAVE10", "sub-1", "client-1")).rejects.toThrow("discount amount is zero");
+    });
+  });
+
   describe("removeCouponFromSubscription", () => {
     it("removes coupon from subscription", async () => {
       mockDb.findById.mockResolvedValue({ id: "sub-1", couponId: "cpn-1" });

@@ -65,6 +65,31 @@ describe("metrics.service", () => {
       const result = await getMRR(ORG_ID);
       expect(result.mrr).toBe(0);
     });
+
+    it("normalizes quarterly and semi_annual billing intervals", async () => {
+      mockDb.raw
+        .mockResolvedValueOnce([
+          { price: 30000, billing_interval: "quarterly", quantity: 1 },
+          { price: 60000, billing_interval: "semi_annual", quantity: 1 },
+        ])
+        .mockResolvedValueOnce([]);
+
+      const result = await getMRR(ORG_ID);
+
+      // quarterly: 30000/3 = 10000, semi_annual: 60000/6 = 10000
+      expect(result.mrr).toBe(20000);
+    });
+
+    it("handles unknown billing interval as monthly", async () => {
+      mockDb.raw
+        .mockResolvedValueOnce([
+          { price: 5000, billing_interval: "custom", quantity: 1 },
+        ])
+        .mockResolvedValueOnce([]);
+
+      const result = await getMRR(ORG_ID);
+      expect(result.mrr).toBe(5000);
+    });
   });
 
   describe("getARR", () => {

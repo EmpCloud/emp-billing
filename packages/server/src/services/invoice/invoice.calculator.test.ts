@@ -164,6 +164,51 @@ describe("computeLineItem", () => {
     expect(result.taxBreakdown[1].name).toBe("SGST");
   });
 
+  it("GST context without buyerState defaults to intra-state (CGST+SGST)", () => {
+    const result = computeLineItem(
+      {
+        quantity: 1,
+        rate: 100000,
+        taxRate: 18,
+        taxComponents: [
+          { name: "CGST", rate: 9 },
+          { name: "SGST", rate: 9 },
+        ],
+      },
+      { sellerState: "27" } // no buyerState
+    );
+
+    expect(result.taxAmount).toBe(18000);
+    expect(result.taxBreakdown).toHaveLength(2);
+    expect(result.taxBreakdown[0].name).toBe("CGST");
+    expect(result.taxBreakdown[1].name).toBe("SGST");
+  });
+
+  it("decimal quantity and rounding", () => {
+    const result = computeLineItem({
+      quantity: 2.5,
+      rate: 10000,
+      taxRate: 18,
+    });
+
+    expect(result.lineSubtotal).toBe(25000); // Math.round(2.5 * 10000)
+    expect(result.taxAmount).toBe(4500); // 18% of 25000
+    expect(result.amount).toBe(29500);
+  });
+
+  it("percentage discount with zero value does nothing", () => {
+    const result = computeLineItem({
+      quantity: 1,
+      rate: 10000,
+      discountType: DiscountType.PERCENTAGE,
+      discountValue: 0,
+      taxRate: 0,
+    });
+
+    expect(result.discountAmount).toBe(0);
+    expect(result.taxableAmount).toBe(10000);
+  });
+
   it("GST context inter-state produces IGST breakdown", () => {
     const result = computeLineItem(
       {

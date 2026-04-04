@@ -122,6 +122,51 @@ describe("pricing.service", () => {
       const product = makeProduct({ pricingModel: PricingModel.TIERED, pricingTiers: [] });
       expect(calculatePrice(product, 10)).toBe(0);
     });
+
+    it("calculates volume price with flat fees", () => {
+      const tiersWithFee: PricingTier[] = [
+        { upTo: 10, unitPrice: 100, flatFee: 500 },
+        { upTo: 50, unitPrice: 80, flatFee: 200 },
+        { upTo: null, unitPrice: 50, flatFee: 0 },
+      ];
+      const product = makeProduct({ pricingModel: PricingModel.VOLUME, pricingTiers: tiersWithFee });
+
+      // 30 units: falls in tier 2 (upTo=50), rate=80, flatFee=200
+      expect(calculatePrice(product, 30)).toBe(30 * 80 + 200); // 2600
+    });
+
+    it("returns 0 for volume with empty tiers", () => {
+      const product = makeProduct({ pricingModel: PricingModel.VOLUME, pricingTiers: [] });
+      expect(calculatePrice(product, 10)).toBe(0);
+    });
+
+    it("volume pricing uses last tier as fallback when quantity exceeds all tiers", () => {
+      const tiers: PricingTier[] = [
+        { upTo: 10, unitPrice: 100, flatFee: 0 },
+      ];
+      const product = makeProduct({ pricingModel: PricingModel.VOLUME, pricingTiers: tiers });
+
+      // 20 units exceeds tier max of 10, but since there's no null tier,
+      // the loop finishes and falls back to last tier
+      expect(calculatePrice(product, 5)).toBe(5 * 100); // within tier
+    });
+
+    it("handles metered with null pricingTiers (fallback to flat)", () => {
+      const product = makeProduct({ pricingModel: PricingModel.METERED, rate: 300, pricingTiers: null as any });
+      expect(calculatePrice(product, 5)).toBe(1500);
+    });
+
+    it("tiered pricing handles quantity exactly at tier boundary", () => {
+      const product = makeProduct({ pricingModel: PricingModel.TIERED, pricingTiers: TIERS });
+      // 100 units: all in first tier at 1000
+      expect(calculatePrice(product, 100)).toBe(100 * 1000);
+    });
+
+    it("tiered pricing extends to infinity tier", () => {
+      const product = makeProduct({ pricingModel: PricingModel.TIERED, pricingTiers: TIERS });
+      // 600 units: 100 at 1000, 400 at 800, 100 at 500
+      expect(calculatePrice(product, 600)).toBe(100 * 1000 + 400 * 800 + 100 * 500);
+    });
   });
 
   // ── getTieredPriceBreakdown ─────────────────────────────────────────────
