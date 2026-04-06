@@ -18,7 +18,7 @@ export default defineConfig({
       all: true,
       reportOnFailure: true,
       include: ["src/services/**/*.ts", "src/utils/**/*.ts", "src/api/middleware/**/*.ts"],
-      exclude: ["src/__tests__/**", "tests/**", "src/db/migrations/**", "src/db/seeds/**"],
+      exclude: ["src/__tests__/**", "**/IPaymentGateway.ts", "**/IDBAdapter.ts", "tests/**", "src/db/migrations/**", "src/db/seeds/**"],
       reporter: ["text", "text-summary", "json"],
       reportsDirectory: "./coverage",
     },
