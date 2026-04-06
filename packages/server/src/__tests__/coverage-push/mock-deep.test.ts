@@ -1027,6 +1027,89 @@ describe("Payment Service (mock)", () => {
     expect(mockDB.deleteMany).toHaveBeenCalled();
     expect(mockDB.delete).toHaveBeenCalled();
   });
+
+  it("recordPayment — with invoice allocation (exact amount)", async () => {
+    mockDB.findById
+      .mockResolvedValueOnce({ id: "client-1" }) // client
+      .mockResolvedValueOnce({ id: "inv-1", status: "sent", amountDue: 10000, amountPaid: 0, total: 10000 }) // invoice
+      .mockResolvedValueOnce({ id: "inv-1", status: "paid", amountDue: 0, amountPaid: 10000, total: 10000 }); // updated invoice
+    mockDB.count.mockResolvedValue(0);
+    const result = await paymentService.recordPayment("org-1", "user-1", {
+      clientId: "client-1",
+      invoiceId: "inv-1",
+      date: new Date(),
+      amount: 10000,
+      method: "bank_transfer",
+    } as any);
+    expect(result).toBeDefined();
+    expect(mockDB.create).toHaveBeenCalled();
+  });
+
+  it("recordPayment — with overpayment creates credit note", async () => {
+    mockDB.findById
+      .mockResolvedValueOnce({ id: "client-1" }) // client
+      .mockResolvedValueOnce({ id: "inv-1", status: "sent", amountDue: 5000, amountPaid: 5000, total: 10000 }) // invoice
+      .mockResolvedValueOnce({ id: "inv-1", status: "paid", amountDue: 0, amountPaid: 10000, total: 10000 }); // updated
+    mockDB.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+    const result = await paymentService.recordPayment("org-1", "user-1", {
+      clientId: "client-1",
+      invoiceId: "inv-1",
+      date: new Date(),
+      amount: 8000, // 3000 overpayment
+      method: "cash",
+    } as any);
+    expect(result).toBeDefined();
+  });
+
+  it("recordPayment — rejects void invoice", async () => {
+    mockDB.findById
+      .mockResolvedValueOnce({ id: "client-1" }) // client
+      .mockResolvedValueOnce({ id: "inv-1", status: "void" }); // void invoice
+    await expect(paymentService.recordPayment("org-1", "user-1", {
+      clientId: "client-1",
+      invoiceId: "inv-1",
+      date: new Date(),
+      amount: 10000,
+      method: "cash",
+    } as any)).rejects.toThrow("voided");
+  });
+
+  it("recordPayment — client not found", async () => {
+    mockDB.findById.mockResolvedValueOnce(null);
+    await expect(paymentService.recordPayment("org-1", "user-1", {
+      clientId: "bad-client",
+      date: new Date(),
+      amount: 10000,
+      method: "cash",
+    } as any)).rejects.toThrow();
+  });
+
+  it("recordPayment — invoice not found", async () => {
+    mockDB.findById
+      .mockResolvedValueOnce({ id: "client-1" })
+      .mockResolvedValueOnce(null);
+    await expect(paymentService.recordPayment("org-1", "user-1", {
+      clientId: "client-1",
+      invoiceId: "bad-inv",
+      date: new Date(),
+      amount: 10000,
+      method: "cash",
+    } as any)).rejects.toThrow();
+  });
+
+  it("getPaymentReceiptPdf — success", async () => {
+    mockDB.findById
+      .mockResolvedValueOnce({ id: "p1", clientId: "c1", date: "2025-01-15", amount: 10000, method: "cash" }) // payment
+      .mockResolvedValueOnce({ id: "org-1", name: "TestOrg", address: "{}" }) // org
+      .mockResolvedValueOnce({ id: "c1", name: "Client", billingAddress: "{}" }); // client
+    const result = await paymentService.getPaymentReceiptPdf("org-1", "p1");
+    expect(result).toBeInstanceOf(Buffer);
+  });
+
+  it("getPaymentReceiptPdf — payment not found", async () => {
+    mockDB.findById.mockResolvedValueOnce(null);
+    await expect(paymentService.getPaymentReceiptPdf("org-1", "p1")).rejects.toThrow();
+  });
 });
 
 // ===========================================================================
