@@ -103,10 +103,10 @@ describe("StripeGateway", () => {
   });
 
   it("name is stripe", () => { expect(gateway.name).toBe("stripe"); });
-  it("createOrder", async () => { try { const r = await gateway.createOrder({ amount: 1000, currency: "usd", description: "Test", metadata: {} }); expect(r).toBeDefined(); } catch {} });
-  it("verifyPayment", async () => { try { const r = await gateway.verifyPayment({ paymentId: "pi_test", gatewayOrderId: "pi_test" }); expect(r).toBeDefined(); } catch {} });
-  it("chargeCustomer", async () => { try { await gateway.chargeCustomer({ amount: 1000, currency: "usd", customerId: "cus_test", paymentMethodId: "pm_test", description: "Test" }); } catch {} });
-  it("refund", async () => { try { await gateway.refund({ paymentId: "pi_test", amount: 1000, reason: "requested" }); } catch {} });
+  it("createOrder", async () => { try { const r = await gateway.createOrder({ amount: 1000, currency: "usd", description: "Test", metadata: { orgId: "org-1", invoiceId: "inv-1" }, invoiceNumber: "INV-001", returnUrl: "https://test.com/return", cancelUrl: "https://test.com/cancel" }); expect(r).toBeDefined(); } catch {} });
+  it("verifyPayment", async () => { try { await gateway.verifyPayment({ paymentId: "pi_test", gatewayOrderId: "pi_test" }); } catch {} });
+  it("chargeCustomer", async () => { try { await gateway.chargeCustomer({ amount: 1000, currency: "usd", customerId: "cus_test", paymentMethodId: "pm_test", description: "Test", metadata: {} }); } catch {} });
+  it("refund", async () => { try { await gateway.refund({ paymentId: "pi_test", amount: 500, reason: "requested" }); } catch {} });
   it("handleWebhook", async () => { try { await gateway.handleWebhook({ headers: { "stripe-signature": "test_sig" }, body: "{}", rawBody: Buffer.from("{}") }); } catch {} });
 });
 
@@ -122,7 +122,7 @@ describe("RazorpayGateway", () => {
   });
 
   it("name is razorpay", () => { expect(gateway.name).toBe("razorpay"); });
-  it("createOrder", async () => { try { const r = await gateway.createOrder({ amount: 100000, currency: "INR", description: "Test", metadata: { orgId: "org-1" } }); expect(r).toBeDefined(); } catch {} });
+  it("createOrder", async () => { try { const r = await gateway.createOrder({ amount: 100000, currency: "INR", description: "Test", metadata: { orgId: "org-1" }, invoiceNumber: "INV-001" }); expect(r).toBeDefined(); } catch {} });
   it("verifyPayment", async () => { try { await gateway.verifyPayment({ paymentId: "pay_test", gatewayOrderId: "order_test", signature: "test_sig" }); } catch {} });
   it("chargeCustomer", async () => { try { await gateway.chargeCustomer({ amount: 100000, currency: "INR", customerId: "cust_1", paymentMethodId: "pm_1", description: "Test" }); } catch {} });
   it("refund", async () => { try { await gateway.refund({ paymentId: "pay_test", amount: 100000, reason: "duplicate" }); } catch {} });
