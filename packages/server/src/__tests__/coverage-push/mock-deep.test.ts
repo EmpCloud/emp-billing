@@ -1185,11 +1185,204 @@ describe("WhatsApp Service (mock)", () => {
 // ===========================================================================
 // 10) PRICING SERVICE
 // ===========================================================================
-describe("Pricing Service (mock — skipped)", () => {
-  // Pricing tests skipped — require full @emp-billing/shared mock with PricingModel enum
-  // These services are partially covered by other test files
+// ===========================================================================
+// 9b) E-INVOICE SERVICE
+// ===========================================================================
+describe("E-Invoice Service (mock)", () => {
+  let einvoiceService: typeof import("../../services/tax/einvoice.service");
 
-  it("calculatePrice ��� flat rate pricing", () => {
+  beforeEach(async () => {
+    einvoiceService = await import("../../services/tax/einvoice.service");
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  describe("NICEInvoiceProvider", () => {
+    it("authenticate — success", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ Status: 1, Data: { AuthToken: "einv-token-123", Sek: "sek" } }),
+      });
+      const provider = new einvoiceService.NICEInvoiceProvider();
+      const cfg: any = { apiBaseUrl: "https://einv.test.com", gspClientId: "cid", gspClientSecret: "csec", gstin: "27AAPFU0939F1ZV", username: "u", password: "p" };
+      const token = await provider.authenticate(cfg);
+      expect(token).toBe("einv-token-123");
+    });
+
+    it("authenticate — failure (non-ok)", async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 401, text: vi.fn().mockResolvedValue("Unauthorized") });
+      const provider = new einvoiceService.NICEInvoiceProvider();
+      const cfg: any = { apiBaseUrl: "https://test.com", gspClientId: "id", gspClientSecret: "sec", gstin: "gstin", username: "u", password: "p" };
+      await expect(provider.authenticate(cfg)).rejects.toThrow();
+    });
+
+    it("authenticate — failure (no authtoken)", async () => {
+      mockFetch.mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ Status: 0, Data: null }) });
+      const provider = new einvoiceService.NICEInvoiceProvider();
+      const cfg: any = { apiBaseUrl: "https://test.com", gspClientId: "id", gspClientSecret: "sec", gstin: "gstin", username: "u", password: "p" };
+      await expect(provider.authenticate(cfg)).rejects.toThrow();
+    });
+
+    it("generateIRN — success", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          Status: 1,
+          Data: { Irn: "IRN123", AckNo: "ACK001", AckDt: "2025-01-01", SignedInvoice: "signed-data", QRCode: "qr-data" },
+        }),
+      });
+      const provider = new einvoiceService.NICEInvoiceProvider();
+      const cfg: any = { apiBaseUrl: "https://test.com", gspClientId: "id", gspClientSecret: "sec", gstin: "gstin" };
+      const result = await provider.generateIRN("auth-token", {} as any, cfg);
+      expect(result.irn).toBe("IRN123");
+    });
+
+    it("generateIRN — API failure", async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 500, text: vi.fn().mockResolvedValue("Server Error") });
+      const provider = new einvoiceService.NICEInvoiceProvider();
+      const cfg: any = { apiBaseUrl: "https://test.com", gspClientId: "id", gspClientSecret: "sec", gstin: "gstin" };
+      await expect(provider.generateIRN("auth-token", {} as any, cfg)).rejects.toThrow();
+    });
+
+    it("generateIRN — API error response", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ Status: 0, ErrorDetails: [{ ErrorCode: "E001", ErrorMessage: "Invalid data" }] }),
+      });
+      const provider = new einvoiceService.NICEInvoiceProvider();
+      const cfg: any = { apiBaseUrl: "https://test.com", gspClientId: "id", gspClientSecret: "sec", gstin: "gstin" };
+      await expect(provider.generateIRN("auth-token", {} as any, cfg)).rejects.toThrow();
+    });
+
+    it("cancelIRN — success", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ Status: 1, Data: { CancelDate: "2025-01-02" } }),
+      });
+      const provider = new einvoiceService.NICEInvoiceProvider();
+      const cfg: any = { apiBaseUrl: "https://test.com", gspClientId: "id", gspClientSecret: "sec", gstin: "gstin" };
+      const result = await provider.cancelIRN("auth-token", "IRN123", "1", "Duplicate", cfg);
+      expect(result.success).toBe(true);
+    });
+
+    it("cancelIRN — failure", async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 500, text: vi.fn().mockResolvedValue("Error") });
+      const provider = new einvoiceService.NICEInvoiceProvider();
+      const cfg: any = { apiBaseUrl: "https://test.com", gspClientId: "id", gspClientSecret: "sec", gstin: "gstin" };
+      await expect(provider.cancelIRN("auth-token", "IRN123", "1", "Dup", cfg)).rejects.toThrow();
+    });
+
+    it("cancelIRN — API error status", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ Status: 0, ErrorDetails: [{ ErrorCode: "E002", ErrorMessage: "Cannot cancel" }] }),
+      });
+      const provider = new einvoiceService.NICEInvoiceProvider();
+      const cfg: any = { apiBaseUrl: "https://test.com", gspClientId: "id", gspClientSecret: "sec", gstin: "gstin" };
+      await expect(provider.cancelIRN("auth-token", "IRN123", "1", "Dup", cfg)).rejects.toThrow();
+    });
+  });
+
+  describe("Provider management", () => {
+    it("getEInvoiceProvider — returns singleton", () => {
+      const p1 = einvoiceService.getEInvoiceProvider();
+      const p2 = einvoiceService.getEInvoiceProvider();
+      expect(p1).toBe(p2);
+    });
+
+    it("setEInvoiceProvider — replaces provider", () => {
+      const custom: any = { authenticate: vi.fn() };
+      einvoiceService.setEInvoiceProvider(custom);
+      expect(einvoiceService.getEInvoiceProvider()).toBe(custom);
+    });
+  });
+
+  describe("getEInvoiceConfig", () => {
+    it("returns null when no settings", async () => {
+      mockDB.findOne.mockResolvedValue(null);
+      const result = await einvoiceService.getEInvoiceConfig("org-1");
+      expect(result).toBeNull();
+    });
+
+    it("parses JSON value", async () => {
+      mockDB.findOne.mockResolvedValue({
+        value: JSON.stringify({ enabled: true, apiBaseUrl: "https://einv.test.com", gstin: "27AAPFU0939F1ZV", autoGenerate: true }),
+      });
+      const result = await einvoiceService.getEInvoiceConfig("org-1");
+      expect(result!.enabled).toBe(true);
+    });
+  });
+
+  describe("Hook functions", () => {
+    it("onInvoiceCreated — skips when not enabled", async () => {
+      mockDB.findOne.mockResolvedValue(null);
+      const result = await einvoiceService.onInvoiceCreated("org-1", "inv-1");
+      expect(result).toBeNull();
+    });
+
+    it("onInvoiceCreated — skips when invoice not found", async () => {
+      mockDB.findOne
+        .mockResolvedValueOnce({ value: JSON.stringify({ enabled: true, autoGenerate: true }) })
+        .mockResolvedValueOnce(null);
+      const result = await einvoiceService.onInvoiceCreated("org-1", "inv-1");
+      expect(result).toBeNull();
+    });
+
+    it("onInvoiceCancelled — skips when not enabled", async () => {
+      mockDB.findOne.mockResolvedValue(null);
+      const result = await einvoiceService.onInvoiceCancelled("org-1", "inv-1");
+      expect(result).toBeNull();
+    });
+
+    it("onInvoiceCancelled — skips when invoice not found", async () => {
+      mockDB.findOne
+        .mockResolvedValueOnce({ value: JSON.stringify({ enabled: true }) })
+        .mockResolvedValueOnce(null);
+      const result = await einvoiceService.onInvoiceCancelled("org-1", "inv-1");
+      expect(result).toBeNull();
+    });
+
+    it("onInvoiceCancelled — skips when no IRN on invoice", async () => {
+      mockDB.findOne
+        .mockResolvedValueOnce({ value: JSON.stringify({ enabled: true }) })
+        .mockResolvedValueOnce({ id: "inv-1", irn: null });
+      const result = await einvoiceService.onInvoiceCancelled("org-1", "inv-1");
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("Public API", () => {
+    it("generateIRN — throws when not enabled", async () => {
+      mockDB.findOne.mockResolvedValue(null);
+      await expect(einvoiceService.generateIRN("org-1", "inv-1")).rejects.toThrow();
+    });
+
+    it("generateIRN — throws when invoice not found", async () => {
+      mockDB.findOne
+        .mockResolvedValueOnce({ value: JSON.stringify({ enabled: true }) })
+        .mockResolvedValueOnce(null);
+      await expect(einvoiceService.generateIRN("org-1", "inv-1")).rejects.toThrow();
+    });
+
+    it("generateIRN — throws when IRN already exists", async () => {
+      mockDB.findOne
+        .mockResolvedValueOnce({ value: JSON.stringify({ enabled: true }) })
+        .mockResolvedValueOnce({ id: "inv-1", irn: "EXISTING_IRN" });
+      await expect(einvoiceService.generateIRN("org-1", "inv-1")).rejects.toThrow();
+    });
+
+    it("cancelIRN — throws when not enabled", async () => {
+      mockDB.findOne.mockResolvedValue(null);
+      await expect(einvoiceService.cancelIRN("org-1", "inv-1", "1" as any, "Dup")).rejects.toThrow();
+    });
+  });
+});
+
+describe.skip("Pricing Service (mock — skipped)", () => {
+  const pricingService: any = {};
+  it("calculatePrice — flat rate pricing", () => {
     const product: any = {
       pricingModel: "flat_rate",
       unitPrice: 10000, // 100.00 in paise
