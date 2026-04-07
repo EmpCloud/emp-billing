@@ -318,12 +318,18 @@ describe("invoice.service", () => {
         amountPaid: 0,
       }));
       expect(mockDb.createMany).toHaveBeenCalledWith("invoice_items", expect.any(Array));
-      // Should update client balance
-      expect(mockDb.update).toHaveBeenCalledWith(
+      // Should update client balance via increment
+      expect(mockDb.increment).toHaveBeenCalledWith(
         "clients",
         CLIENT_ID,
-        expect.objectContaining({ updatedAt: expect.any(Date) }),
-        ORG_ID
+        "total_billed",
+        expect.any(Number)
+      );
+      expect(mockDb.increment).toHaveBeenCalledWith(
+        "clients",
+        CLIENT_ID,
+        "outstanding_balance",
+        expect.any(Number)
       );
     });
 
@@ -705,12 +711,12 @@ describe("invoice.service", () => {
 
       const result = await voidInvoice(ORG_ID, INVOICE_ID);
 
-      // Should reverse client outstanding balance
-      expect(mockDb.update).toHaveBeenCalledWith(
+      // Should reverse client outstanding balance via increment
+      expect(mockDb.increment).toHaveBeenCalledWith(
         "clients",
         CLIENT_ID,
-        expect.objectContaining({ updatedAt: expect.any(Date) }),
-        ORG_ID
+        "outstanding_balance",
+        -118000
       );
       // Should void the invoice
       expect(mockDb.update).toHaveBeenCalledWith(

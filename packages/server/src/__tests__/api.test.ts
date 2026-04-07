@@ -8,6 +8,15 @@ import { describe, it, expect, beforeAll } from "vitest";
 const API = process.env.BILLING_TEST_API || "http://localhost:4001";
 const BASE = `${API}/api/v1`;
 
+// Graceful skip: probe server availability before test registration
+let serverAvailable = false;
+try {
+  const resp = await fetch(`${API}/api/v1/health`, { signal: AbortSignal.timeout(2000) }).catch(() => null);
+  serverAvailable = resp !== null;
+} catch {
+  serverAvailable = false;
+}
+
 // ---------------------------------------------------------------------------
 // Credentials — override via env vars if needed
 // ---------------------------------------------------------------------------
@@ -67,7 +76,7 @@ async function api(
 // ============================================================================
 // AUTH
 // ============================================================================
-describe("Auth", () => {
+describe.skipIf(!serverAvailable)("Auth", () => {
   it("1. POST /auth/login — should authenticate and return tokens", async () => {
     const res = await api("POST", "/auth/login", {
       email: LOGIN_EMAIL,
@@ -99,7 +108,7 @@ describe("Auth", () => {
 // ============================================================================
 // CLIENTS
 // ============================================================================
-describe("Clients CRUD", () => {
+describe.skipIf(!serverAvailable)("Clients CRUD", () => {
   it("4. POST /clients — create client", async () => {
     const res = await api("POST", "/clients", {
       name: `Test Client ${Date.now()}`,
@@ -175,7 +184,7 @@ describe("Clients CRUD", () => {
 // ============================================================================
 // PRODUCTS & TAX RATES
 // ============================================================================
-describe("Products & Tax Rates", () => {
+describe.skipIf(!serverAvailable)("Products & Tax Rates", () => {
   it("12. POST /products — create product", async () => {
     const res = await api("POST", "/products", {
       name: `Test Product ${Date.now()}`,
@@ -242,7 +251,7 @@ describe("Products & Tax Rates", () => {
 // ============================================================================
 // INVOICES
 // ============================================================================
-describe("Invoices CRUD", () => {
+describe.skipIf(!serverAvailable)("Invoices CRUD", () => {
   it("19. POST /invoices — create invoice with line items", async () => {
     const res = await api("POST", "/invoices", {
       client_id: clientId,
@@ -312,7 +321,7 @@ describe("Invoices CRUD", () => {
 // ============================================================================
 // PAYMENTS
 // ============================================================================
-describe("Payments", () => {
+describe.skipIf(!serverAvailable)("Payments", () => {
   it("26. POST /payments — record manual payment", async () => {
     const res = await api("POST", "/payments", {
       client_id: clientId,
@@ -361,7 +370,7 @@ describe("Payments", () => {
 // ============================================================================
 // SUBSCRIPTIONS & PLANS
 // ============================================================================
-describe("Subscriptions & Plans", () => {
+describe.skipIf(!serverAvailable)("Subscriptions & Plans", () => {
   it("31. POST /subscriptions/plans — create plan", async () => {
     const res = await api("POST", "/subscriptions/plans", {
       name: `Test Plan ${Date.now()}`,
@@ -442,7 +451,7 @@ describe("Subscriptions & Plans", () => {
 // ============================================================================
 // COUPONS
 // ============================================================================
-describe("Coupons CRUD", () => {
+describe.skipIf(!serverAvailable)("Coupons CRUD", () => {
   it("41. POST /coupons — create coupon", async () => {
     const code = `TEST${Date.now()}`;
     const res = await api("POST", "/coupons", {
@@ -509,7 +518,7 @@ describe("Coupons CRUD", () => {
 // ============================================================================
 // CREDIT NOTES
 // ============================================================================
-describe("Credit Notes", () => {
+describe.skipIf(!serverAvailable)("Credit Notes", () => {
   it("48. POST /credit-notes — create credit note", async () => {
     const res = await api("POST", "/credit-notes", {
       client_id: clientId,
@@ -548,7 +557,7 @@ describe("Credit Notes", () => {
 // ============================================================================
 // WEBHOOKS
 // ============================================================================
-describe("Webhooks", () => {
+describe.skipIf(!serverAvailable)("Webhooks", () => {
   it("52. POST /webhooks — create webhook endpoint", async () => {
     const res = await api("POST", "/webhooks", {
       url: "https://httpbin.org/post",
@@ -594,7 +603,7 @@ describe("Webhooks", () => {
 // ============================================================================
 // USAGE BILLING
 // ============================================================================
-describe("Usage Billing", () => {
+describe.skipIf(!serverAvailable)("Usage Billing", () => {
   it("57. POST /usage — record usage", async () => {
     const res = await api("POST", "/usage", {
       client_id: clientId,
@@ -622,7 +631,7 @@ describe("Usage Billing", () => {
 // ============================================================================
 // API KEYS
 // ============================================================================
-describe("API Keys", () => {
+describe.skipIf(!serverAvailable)("API Keys", () => {
   it("60. POST /api-keys — create API key", async () => {
     const res = await api("POST", "/api-keys", {
       name: `Test Key ${Date.now()}`,
@@ -645,7 +654,7 @@ describe("API Keys", () => {
 // ============================================================================
 // REPORTS
 // ============================================================================
-describe("Reports", () => {
+describe.skipIf(!serverAvailable)("Reports", () => {
   it("62. GET /reports/dashboard — dashboard stats", async () => {
     const res = await api("GET", "/reports/dashboard");
     expect(res.status).toBe(200);
@@ -692,7 +701,7 @@ describe("Reports", () => {
 // ============================================================================
 // METRICS
 // ============================================================================
-describe("Metrics", () => {
+describe.skipIf(!serverAvailable)("Metrics", () => {
   it("69. GET /metrics/mrr — monthly recurring revenue", async () => {
     const res = await api("GET", "/metrics/mrr");
     expect(res.status).toBe(200);
@@ -727,7 +736,7 @@ describe("Metrics", () => {
 // ============================================================================
 // DUNNING
 // ============================================================================
-describe("Dunning", () => {
+describe.skipIf(!serverAvailable)("Dunning", () => {
   it("74. GET /dunning/config — get dunning config", async () => {
     const res = await api("GET", "/dunning/config");
     expect(res.status).toBe(200);
@@ -750,7 +759,7 @@ describe("Dunning", () => {
 // ============================================================================
 // SETTINGS
 // ============================================================================
-describe("Settings", () => {
+describe.skipIf(!serverAvailable)("Settings", () => {
   it("77. GET /settings — get org settings", async () => {
     const res = await api("GET", "/settings");
     expect(res.status).toBe(200);
@@ -773,7 +782,7 @@ describe("Settings", () => {
 // ============================================================================
 // CLEANUP — delete test resources
 // ============================================================================
-describe("Cleanup", () => {
+describe.skipIf(!serverAvailable)("Cleanup", () => {
   it("80. DELETE /api-keys/:id — revoke API key", async () => {
     if (!apiKeyId) return;
     const res = await api("DELETE", `/api-keys/${apiKeyId}`);

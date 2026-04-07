@@ -20,6 +20,7 @@ const mockedGetDB = vi.mocked(getDB);
 function makeMockDB() {
   return {
     raw: vi.fn(),
+    findById: vi.fn().mockResolvedValue({ defaultCurrency: "INR" }),
   };
 }
 
