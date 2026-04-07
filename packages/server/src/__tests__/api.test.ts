@@ -8,11 +8,20 @@ import { describe, it, expect, beforeAll } from "vitest";
 const API = process.env.BILLING_TEST_API || "http://localhost:4001";
 const BASE = `${API}/api/v1`;
 
-// Graceful skip: probe server availability before test registration
+// Graceful skip: probe server availability AND auth before test registration
 let serverAvailable = false;
 try {
   const resp = await fetch(`${API}/api/v1/health`, { signal: AbortSignal.timeout(2000) }).catch(() => null);
-  serverAvailable = resp !== null;
+  if (resp && resp.ok) {
+    // Also verify auth works — if login fails, all tests would cascade-fail
+    const loginResp = await fetch(`${API}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: process.env.BILLING_TEST_EMAIL || "admin@empcloud.com", password: process.env.BILLING_TEST_PASS || "Admin@123" }),
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => null);
+    if (loginResp && loginResp.ok) serverAvailable = true;
+  }
 } catch {
   serverAvailable = false;
 }
