@@ -93,9 +93,7 @@ beforeAll(async () => {
       invoice_next_number: 1,
       quote_prefix: "COVQ",
       quote_next_number: 1,
-      gstin: "07AABCU9603R1ZP",
       tax_id: "07AABCU9603R1ZP",
-      state_code: "07",
     });
     track("organizations", TEST_ORG_ID);
 
@@ -124,7 +122,6 @@ beforeAll(async () => {
       total_billed: 0,
       total_paid: 0,
       tax_id: "29AABCU9603R1ZP",
-      state_code: "29",
     });
     track("clients", TEST_CLIENT_ID);
   } catch {
