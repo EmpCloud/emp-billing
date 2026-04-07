@@ -147,7 +147,8 @@ describe("GSTR1Service", () => {
   });
 
   it("generateGSTR1 with invoices", async () => {
-    mockDb.findById.mockResolvedValue({ id: "org-1", gstin: "29AAACR5055K1Z5", legalName: "Test Corp", address: { state: "Karnataka", stateCode: "29" } });
+    mockDb.findOne.mockResolvedValueOnce({ id: "org-1", gstin: "29AAACR5055K1Z5", legalName: "Test Corp", address: { state: "Karnataka", stateCode: "29" } })
+      .mockResolvedValueOnce({ id: "c-1", name: "Client Corp", gstin: "27AADCB2230M1Z3", address: { state: "Maharashtra", stateCode: "27" } });
     mockDb.findMany.mockResolvedValue([
       {
         id: "inv-1", invoiceNumber: "INV-001", invoiceDate: "2026-03-15", clientId: "c-1",
@@ -155,14 +156,13 @@ describe("GSTR1Service", () => {
         items: JSON.stringify([{ description: "Service", amount: 10000, taxRate: 18, hsnCode: "998311" }]),
       },
     ]);
-    mockDb.findOne.mockResolvedValue({ id: "c-1", name: "Client Corp", gstin: "27AADCB2230M1Z3", address: { state: "Maharashtra", stateCode: "27" } });
     const r = await mod.generateGSTR1("org-1", "2026-03");
     expect(r).toHaveProperty("gstin");
     expect(r).toHaveProperty("b2b");
   });
 
   it("generateGSTR1 with no invoices", async () => {
-    mockDb.findById.mockResolvedValue({ id: "org-1", gstin: "29AAACR5055K1Z5", legalName: "Test" });
+    mockDb.findOne.mockResolvedValue({ id: "org-1", gstin: "29AAACR5055K1Z5", legalName: "Test" });
     mockDb.findMany.mockResolvedValue([]);
     const r = await mod.generateGSTR1("org-1", "2026-03");
     expect(r.b2b).toEqual([]);
@@ -632,7 +632,7 @@ describe("SubscriptionService", () => {
   beforeEach(async () => { mod = await import("../../services/subscription/subscription.service"); });
 
   it("listPlans", async () => { mockDb.findMany.mockResolvedValue([{ id: "p1" }]); const r = await mod.listPlans("org-1"); expect(Array.isArray(r)).toBe(true); });
-  it("getPlan found", async () => { mockDb.findOne.mockResolvedValue({ id: "p1", orgId: "org-1" }); const r = await mod.getPlan("org-1", "p1"); expect(r).toBeTruthy(); });
+  it("getPlan found", async () => { mockDb.findById.mockResolvedValue({ id: "p1", orgId: "org-1" }); const r = await mod.getPlan("org-1", "p1"); expect(r).toBeTruthy(); });
   it("getPlan not found", async () => { await expect(mod.getPlan("org-1", "p1")).rejects.toThrow(); });
   it("createPlan", async () => { try { await mod.createPlan("org-1", { name: "Pro", interval: "monthly", intervalCount: 1, amount: 999, currency: "USD", productId: "prod-1" }); } catch {} });
   it("updatePlan", async () => { mockDb.findOne.mockResolvedValue({ id: "p1", orgId: "org-1" }); try { await mod.updatePlan("org-1", "p1", { name: "Pro Plus" }); } catch {} });
@@ -653,7 +653,7 @@ describe("ClientService", () => {
   beforeEach(async () => { mod = await import("../../services/client/client.service"); });
 
   it("listClients", async () => { mockDb.findPaginated.mockResolvedValue({ data: [{ id: "c1" }], total: 1, page: 1, pageSize: 20, totalPages: 1 }); try { const r = await mod.listClients("org-1"); } catch {} });
-  it("getClient found", async () => { mockDb.findOne.mockResolvedValue({ id: "c1", orgId: "org-1", name: "Client" }); mockDb.findMany.mockResolvedValue([]); const r = await mod.getClient("org-1", "c1"); expect(r).toBeTruthy(); });
+  it("getClient found", async () => { mockDb.findById.mockResolvedValue({ id: "c1", orgId: "org-1", name: "Client" }); mockDb.findMany.mockResolvedValue([]); const r = await mod.getClient("org-1", "c1"); expect(r).toBeTruthy(); });
   it("getClient not found", async () => { await expect(mod.getClient("org-1", "c1")).rejects.toThrow(); });
   it("createClient", async () => { try { await mod.createClient("org-1", { name: "New Client", email: "c@t.com", currency: "INR" }); } catch {} });
   it("updateClient", async () => { mockDb.findOne.mockResolvedValue({ id: "c1", orgId: "org-1" }); try { await mod.updateClient("org-1", "c1", { name: "Updated" }); } catch {} });

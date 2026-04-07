@@ -6,6 +6,16 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { v4 as uuid } from "uuid";
+import knex from "knex";
+
+// Probe DB connectivity at module level
+let dbAvailable = false;
+try {
+  const probe = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: "EmpCloud2026", database: "emp_billing" }, pool: { min: 0, max: 1 } });
+  await probe.raw("SELECT 1");
+  await probe.destroy();
+  dbAvailable = true;
+} catch { /* MySQL not available */ }
 
 process.env.DB_PROVIDER = "mysql";
 process.env.DB_HOST = "localhost";
@@ -44,6 +54,7 @@ vi.mock("puppeteer", () => ({
 let testOrgId: string;
 
 beforeAll(async () => {
+  if (!dbAvailable) return;
   const { getDB } = await import("../../db/adapters/index");
   const db = await getDB();
   // Use existing test org or create one
@@ -73,7 +84,7 @@ beforeAll(async () => {
 // ============================================================================
 // ONLINE PAYMENT SERVICE — with real DB
 // ============================================================================
-describe("OnlinePayment realdb", () => {
+describe.skipIf(!dbAvailable)("OnlinePayment realdb", () => {
   it("listAvailableGateways returns gateways list", async () => {
     const { listAvailableGateways } = await import("../../services/payment/online-payment.service");
     const gws = listAvailableGateways();
@@ -106,7 +117,7 @@ describe("OnlinePayment realdb", () => {
 // ============================================================================
 // SETTINGS SERVICE — real DB
 // ============================================================================
-describe("Settings realdb", () => {
+describe.skipIf(!dbAvailable)("Settings realdb", () => {
   it("getOrgSettings returns org", async () => {
     const { getOrgSettings } = await import("../../services/settings/settings.service");
     const r = await getOrgSettings(testOrgId);
@@ -159,7 +170,7 @@ describe("Settings realdb", () => {
 // ============================================================================
 // SUBSCRIPTION SERVICE — real DB
 // ============================================================================
-describe("Subscription realdb", () => {
+describe.skipIf(!dbAvailable)("Subscription realdb", () => {
   let planId: string;
   let clientId: string;
 
@@ -172,6 +183,7 @@ describe("Subscription realdb", () => {
       id: clientId,
       orgId: testOrgId,
       name: "CovPush Client",
+      displayName: "CovPush Client",
       email: "covpush-client@test.com",
       currency: "INR",
       paymentTerms: 30,
@@ -279,7 +291,7 @@ describe("Subscription realdb", () => {
 // ============================================================================
 // EMAIL SERVICE — real module import (exercise template loading)
 // ============================================================================
-describe("Email realdb", () => {
+describe.skipIf(!dbAvailable)("Email realdb", () => {
   it("createTransport returns transporter", async () => {
     const { createTransport } = await import("../../services/notification/email.service");
     const t = createTransport();
@@ -339,7 +351,7 @@ describe("Email realdb", () => {
     try {
       // Create temp client
       await db.create("clients", {
-        id: cId, orgId: testOrgId, name: "EmailTestClient", email: "emailclient@test.com",
+        id: cId, orgId: testOrgId, name: "EmailTestClient", displayName: "EmailTestClient", email: "emailclient@test.com",
         currency: "INR", paymentTerms: 30, totalBilled: 0, totalPaid: 0, outstandingBalance: 0,
         createdAt: new Date(), updatedAt: new Date(),
       });
@@ -365,7 +377,7 @@ describe("Email realdb", () => {
     const cId = uuid();
     try {
       await db.create("clients", {
-        id: cId, orgId: testOrgId, name: "ReminderClient", email: "rem@test.com",
+        id: cId, orgId: testOrgId, name: "ReminderClient", displayName: "ReminderClient", email: "rem@test.com",
         currency: "INR", paymentTerms: 30, totalBilled: 0, totalPaid: 0, outstandingBalance: 0,
         createdAt: new Date(), updatedAt: new Date(),
       });
@@ -390,7 +402,7 @@ describe("Email realdb", () => {
     const cId = uuid();
     try {
       await db.create("clients", {
-        id: cId, orgId: testOrgId, name: "ReceiptClient", email: "rcpt@test.com",
+        id: cId, orgId: testOrgId, name: "ReceiptClient", displayName: "ReceiptClient", email: "rcpt@test.com",
         currency: "INR", paymentTerms: 30, totalBilled: 0, totalPaid: 0, outstandingBalance: 0,
         createdAt: new Date(), updatedAt: new Date(),
       });
@@ -414,7 +426,7 @@ describe("Email realdb", () => {
     const cId = uuid();
     try {
       await db.create("clients", {
-        id: cId, orgId: testOrgId, name: "QuoteClient", email: "qt@test.com",
+        id: cId, orgId: testOrgId, name: "QuoteClient", displayName: "QuoteClient", email: "qt@test.com",
         currency: "INR", paymentTerms: 30, totalBilled: 0, totalPaid: 0, outstandingBalance: 0,
         createdAt: new Date(), updatedAt: new Date(),
       });
@@ -443,7 +455,7 @@ describe("Email realdb", () => {
 // ============================================================================
 // GSTR1 — real DB generation
 // ============================================================================
-describe("GSTR1 realdb", () => {
+describe.skipIf(!dbAvailable)("GSTR1 realdb", () => {
   it("generateGSTR1 generates report", async () => {
     const { generateGSTR1 } = await import("../../services/tax/gstr1.service");
     try {
@@ -487,7 +499,7 @@ describe("GSTR1 realdb", () => {
 // ============================================================================
 // E-INVOICE — real DB
 // ============================================================================
-describe("EInvoice realdb", () => {
+describe.skipIf(!dbAvailable)("EInvoice realdb", () => {
   it("getEInvoiceConfig returns null for org without e-invoice", async () => {
     const { getEInvoiceConfig } = await import("../../services/tax/einvoice.service");
     const r = await getEInvoiceConfig(testOrgId);
@@ -505,7 +517,7 @@ describe("EInvoice realdb", () => {
 // ============================================================================
 // INVOICE SERVICE — real DB deeper
 // ============================================================================
-describe("Invoice realdb", () => {
+describe.skipIf(!dbAvailable)("Invoice realdb", () => {
   it("listInvoices returns paginated", async () => {
     try {
       const { listInvoices } = await import("../../services/invoice/invoice.service");
@@ -518,7 +530,7 @@ describe("Invoice realdb", () => {
 // ============================================================================
 // E-WAY BILL SERVICE — real DB
 // ============================================================================
-describe("EWayBill realdb", () => {
+describe.skipIf(!dbAvailable)("EWayBill realdb", () => {
   it("getEWayBillProvider returns provider", async () => {
     const { getEWayBillProvider } = await import("../../services/tax/eway-bill.service");
     const p = getEWayBillProvider();
@@ -677,7 +689,7 @@ describe("EWayBill realdb", () => {
 // ============================================================================
 // IPaymentGateway — import to get coverage credit for interface file
 // ============================================================================
-describe("IPaymentGateway types coverage", () => {
+describe.skipIf(!dbAvailable)("IPaymentGateway types coverage", () => {
   it("imports the interface file", async () => {
     const mod = await import("../../services/payment/gateways/IPaymentGateway");
     expect(mod).toBeDefined();
@@ -687,7 +699,7 @@ describe("IPaymentGateway types coverage", () => {
 // ============================================================================
 // PDF — exercise real code paths (with Puppeteer mocked)
 // ============================================================================
-describe("PDF realdb", () => {
+describe.skipIf(!dbAvailable)("PDF realdb", () => {
   it("exercises pdf module with mocked puppeteer", async () => {
     try {
       const pdfMod = await import("../../utils/pdf");
