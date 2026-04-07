@@ -361,7 +361,7 @@ describe("RecurringService", () => {
       expect(result).toHaveLength(2);
       expect(mockDb.findMany).toHaveBeenCalledWith("recurring_executions", {
         where: { profile_id: "rp1", org_id: ORG_ID },
-        orderBy: [{ column: "executed_at", direction: "desc" }],
+        orderBy: [{ column: "created_at", direction: "desc" }],
       });
     });
 
