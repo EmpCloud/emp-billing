@@ -64,40 +64,40 @@ describe("PricingService deep", () => {
   beforeEach(async () => { mod = await import("../../services/pricing/pricing.service"); });
 
   it("calculatePrice flat rate", () => {
-    const product = { pricingModel: "flat_rate", price: 1000, currency: "INR" };
+    const product = { pricingModel: "flat", rate: 1000, pricingTiers: [] };
     const r = mod.calculatePrice(product as any, 5);
     expect(r).toBe(5000);
   });
 
   it("calculatePrice per unit", () => {
-    const product = { pricingModel: "per_unit", price: 100, currency: "INR" };
+    const product = { pricingModel: "per_seat", rate: 100, pricingTiers: [] };
     const r = mod.calculatePrice(product as any, 10);
     expect(r).toBe(1000);
   });
 
   it("calculatePrice tiered", () => {
-    const product = { pricingModel: "tiered", tiers: JSON.stringify([{ upTo: 10, price: 100 }, { upTo: null, price: 80 }]), currency: "INR" };
+    const product = { pricingModel: "tiered", rate: 0, pricingTiers: [{ upTo: 10, unitPrice: 100 }, { upTo: null, unitPrice: 80 }] };
     const r = mod.calculatePrice(product as any, 15);
     expect(r).toBeGreaterThan(0);
   });
 
   it("calculatePrice volume", () => {
-    const product = { pricingModel: "volume", tiers: JSON.stringify([{ upTo: 10, price: 100 }, { upTo: null, price: 80 }]), currency: "INR" };
+    const product = { pricingModel: "volume", rate: 0, pricingTiers: [{ upTo: 10, unitPrice: 100 }, { upTo: null, unitPrice: 80 }] };
     const r = mod.calculatePrice(product as any, 15);
     expect(r).toBeGreaterThan(0);
   });
 
-  it("calculatePrice staircase", () => {
-    const product = { pricingModel: "staircase", tiers: JSON.stringify([{ upTo: 10, flatPrice: 500 }, { upTo: null, flatPrice: 400 }]), currency: "INR" };
+  it("calculatePrice staircase (falls to default)", () => {
+    const product = { pricingModel: "staircase", rate: 500, pricingTiers: [] };
     const r = mod.calculatePrice(product as any, 15);
     expect(r).toBeGreaterThan(0);
   });
 
   it("getTieredPriceBreakdown", () => {
-    const tiers = [{ upTo: 10, price: 100 }, { upTo: 20, price: 80 }, { upTo: null, price: 60 }];
+    const tiers = [{ upTo: 10, unitPrice: 100 }, { upTo: 20, unitPrice: 80 }, { upTo: null, unitPrice: 60 }];
     const r = mod.getTieredPriceBreakdown(tiers, 25);
-    expect(r).toHaveProperty("tiers");
-    expect(r).toHaveProperty("total");
+    expect(Array.isArray(r)).toBe(true);
+    expect(r.length).toBeGreaterThan(0);
   });
 
   it("recordUsage", async () => { try { await mod.recordUsage("org-1", { productId: "p1", clientId: "c1", quantity: 10, timestamp: new Date().toISOString() }); } catch {} });

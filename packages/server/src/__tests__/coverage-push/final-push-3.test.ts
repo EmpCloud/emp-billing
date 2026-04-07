@@ -94,7 +94,9 @@ beforeEach(() => {
 // ============================================================================
 describe("SubscriptionService deep", () => {
   it("updatePlan updates fields", async () => {
-    mockDb.findById.mockResolvedValueOnce({ id: "p1", name: "Basic", features: "[]" });
+    mockDb.findById
+      .mockResolvedValueOnce({ id: "p1", name: "Basic", features: "[]" }) // existence check
+      .mockResolvedValueOnce({ id: "p1", name: "Basic Pro", features: "[]" }); // getPlan return
     const { updatePlan } = await import("../../services/subscription/subscription.service");
     await updatePlan("org1", "p1", { name: "Basic Pro" } as any);
     expect(mockDb.update).toHaveBeenCalled();
