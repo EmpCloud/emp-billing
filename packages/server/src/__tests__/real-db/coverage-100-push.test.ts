@@ -63,6 +63,17 @@ function track(table: string, id: string) {
   createdIds[table].push(id);
 }
 
+/** MySQL may return BIGINT/DECIMAL as string — normalise to number */
+function num(v: any): number {
+  return Number(v);
+}
+
+/** MySQL may return JSON columns as already-parsed objects or as strings */
+function safeJsonParse(v: any): any {
+  if (typeof v === "object" && v !== null) return v;
+  return JSON.parse(v);
+}
+
 // ── Setup & Teardown ─────────────────────────────────────────────────────────
 
 beforeAll(async () => {
@@ -212,7 +223,7 @@ describe.skipIf(!dbAvailable)("SubscriptionService — Plan CRUD", () => {
     const plan = await db("plans").where("id", planId1).first();
     expect(plan).toBeTruthy();
     expect(plan.name).toContain("Monthly");
-    expect(plan.price).toBe(100000);
+    expect(num(plan.price)).toBe(100000);
     expect(plan.billing_interval).toBe("monthly");
   });
 
@@ -234,8 +245,8 @@ describe.skipIf(!dbAvailable)("SubscriptionService — Plan CRUD", () => {
     track("plans", planId2);
 
     const plan = await db("plans").where("id", planId2).first();
-    expect(plan.trial_period_days).toBe(14);
-    expect(plan.setup_fee).toBe(5000);
+    expect(num(plan.trial_period_days)).toBe(14);
+    expect(num(plan.setup_fee)).toBe(5000);
   });
 
   it("should create an annual plan", async () => {
@@ -266,14 +277,14 @@ describe.skipIf(!dbAvailable)("SubscriptionService — Plan CRUD", () => {
   it("should update plan price", async () => {
     await db("plans").where("id", planId1).update({ price: 120000, updated_at: new Date() });
     const plan = await db("plans").where("id", planId1).first();
-    expect(plan.price).toBe(120000);
+    expect(num(plan.price)).toBe(120000);
   });
 
   it("should update plan features", async () => {
     const newFeatures = JSON.stringify(["f1", "f2", "f3"]);
     await db("plans").where("id", planId1).update({ features: newFeatures });
     const plan = await db("plans").where("id", planId1).first();
-    const features = JSON.parse(plan.features);
+    const features = safeJsonParse(plan.features);
     expect(features).toHaveLength(3);
   });
 
@@ -446,7 +457,7 @@ describe.skipIf(!dbAvailable)("SubscriptionService — Subscription Lifecycle", 
     track("subscription_events", eventId);
 
     const event = await db("subscription_events").where("id", eventId).first();
-    const meta = JSON.parse(event.metadata);
+    const meta = safeJsonParse(event.metadata);
     expect(meta.immediate).toBe(true);
   });
 
@@ -883,7 +894,7 @@ describe.skipIf(!dbAvailable)("SettingsService — Org Settings CRUD", () => {
       updated_at: new Date(),
     });
     const org = await db("organizations").where("id", TEST_ORG_ID).first();
-    const addr = JSON.parse(org.address);
+    const addr = safeJsonParse(org.address);
     expect(addr.city).toBe("Mumbai");
   });
 
@@ -978,7 +989,7 @@ describe.skipIf(!dbAvailable)("SettingsService — Branding", () => {
         updated_at: new Date(),
       });
       const org = await db("organizations").where("id", TEST_ORG_ID).first();
-      const parsed = JSON.parse(org.brand_colors);
+      const parsed = safeJsonParse(org.brand_colors);
       expect(parsed.primary).toBe("#FF5733");
     } catch {
       expect(true).toBe(true);
@@ -1077,7 +1088,7 @@ describe.skipIf(!dbAvailable)("InvoiceService — Full Lifecycle", () => {
 
     const invoice = await db("invoices").where("id", invoiceId).first();
     expect(invoice.status).toBe("draft");
-    expect(invoice.total).toBe(236000);
+    expect(num(invoice.total)).toBe(236000);
   });
 
   it("should get invoice with items", async () => {
@@ -1250,8 +1261,8 @@ describe.skipIf(!dbAvailable)("InvoiceService — Advanced Features", () => {
 
     const dup = await db("invoices").where("id", dupId).first();
     expect(dup.status).toBe("draft");
-    expect(dup.total).toBe(118000);
-    expect(dup.tds_rate).toBe(10);
+    expect(num(dup.total)).toBe(118000);
+    expect(num(dup.tds_rate)).toBe(10);
   });
 
   it("should store TDS fields on invoice", async () => {
@@ -1294,7 +1305,7 @@ describe.skipIf(!dbAvailable)("InvoiceService — Advanced Features", () => {
     expect(parseFloat(inv.exchange_rate)).toBeCloseTo(83.5, 1);
 
     // Converted total
-    const convertedTotal = Math.round(inv.total * parseFloat(inv.exchange_rate));
+    const convertedTotal = Math.round(num(inv.total) * parseFloat(inv.exchange_rate));
     expect(convertedTotal).toBe(835000);
   });
 
@@ -1441,7 +1452,7 @@ describe.skipIf(!dbAvailable)("Tax — e-Invoice Configuration", () => {
 
       const row = await db("settings").where({ org_id: TEST_ORG_ID, key: "einvoice" }).first();
       expect(row).toBeTruthy();
-      const config = JSON.parse(row.value);
+      const config = safeJsonParse(row.value);
       expect(config.enabled).toBe(false);
       expect(config.gstin).toBe("07AABCU9603R1ZP");
     } catch {
@@ -1519,7 +1530,7 @@ describe.skipIf(!dbAvailable)("Tax — e-Way Bill Configuration", () => {
 
       const row = await db("settings").where({ org_id: TEST_ORG_ID, key: "eway_bill" }).first();
       expect(row).toBeTruthy();
-      const config = JSON.parse(row.value);
+      const config = safeJsonParse(row.value);
       expect(config.thresholdAmount).toBe(5000000);
     } catch {
       expect(true).toBe(true);
@@ -1910,7 +1921,7 @@ describe.skipIf(!dbAvailable)("ExpenseService — CRUD & Lifecycle", () => {
 
       const exp = await db("expenses").where("id", expId).first();
       expect(exp.status).toBe("pending");
-      expect(exp.amount).toBe(150000);
+      expect(num(exp.amount)).toBe(150000);
       expect(exp.is_billable).toBeTruthy();
     } catch {
       expect(true).toBe(true);
@@ -2094,7 +2105,7 @@ describe.skipIf(!dbAvailable)("InvoiceService — Credit Notes & Auto-Apply", ()
 
       const cn = await db("credit_notes").where("id", cnId).first();
       expect(cn.status).toBe("open");
-      expect(cn.balance).toBe(20000);
+      expect(num(cn.balance)).toBe(20000);
     } catch {
       expect(true).toBe(true);
     }
@@ -2224,8 +2235,8 @@ describe.skipIf(!dbAvailable)("InvoiceService — Payment Allocations", () => {
 
     const inv = await db("invoices").where("id", invId).first();
     expect(inv.status).toBe("partially_paid");
-    expect(inv.amount_paid).toBe(40000);
-    expect(inv.amount_due).toBe(60000);
+    expect(num(inv.amount_paid)).toBe(40000);
+    expect(num(inv.amount_due)).toBe(60000);
   });
 
   it("should mark invoice fully paid", async () => {
@@ -2238,7 +2249,7 @@ describe.skipIf(!dbAvailable)("InvoiceService — Payment Allocations", () => {
     }
     const inv = invs[0];
     await db("invoices").where("id", inv.id).update({
-      amount_paid: inv.total,
+      amount_paid: num(inv.total),
       amount_due: 0,
       status: "paid",
       paid_at: new Date(),
@@ -2246,7 +2257,7 @@ describe.skipIf(!dbAvailable)("InvoiceService — Payment Allocations", () => {
     });
     const updated = await db("invoices").where("id", inv.id).first();
     expect(updated.status).toBe("paid");
-    expect(updated.amount_due).toBe(0);
+    expect(num(updated.amount_due)).toBe(0);
   });
 });
 
@@ -2330,7 +2341,7 @@ describe.skipIf(!dbAvailable)("SubscriptionService — Setup Fee Invoice", () =>
     track("invoice_items", setupItemId);
 
     const invoice = await db("invoices").where("id", setupInvoiceId).first();
-    expect(invoice.total).toBe(25000);
+    expect(num(invoice.total)).toBe(25000);
     expect(invoice.notes).toContain("Setup fee");
 
     const item = await db("invoice_items").where("id", setupItemId).first();
@@ -2408,7 +2419,7 @@ describe.skipIf(!dbAvailable)("Misc — Mark Overdue & Settings Store", () => {
 
       const row = await db("settings").where({ org_id: TEST_ORG_ID, key: `test_setting_${TS}` }).first();
       expect(row).toBeTruthy();
-      const val = JSON.parse(row.value);
+      const val = safeJsonParse(row.value);
       expect(val.enabled).toBe(true);
     } catch {
       expect(true).toBe(true);
