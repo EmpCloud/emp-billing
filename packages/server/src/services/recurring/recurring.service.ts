@@ -218,7 +218,7 @@ export async function getExecutions(orgId: string, profileId: string) {
 
   const executions = await db.findMany("recurring_executions", {
     where: { profile_id: profileId, org_id: orgId },
-    orderBy: [{ column: "executed_at", direction: "desc" }],
+    orderBy: [{ column: "created_at", direction: "desc" }],
   });
 
   return executions;

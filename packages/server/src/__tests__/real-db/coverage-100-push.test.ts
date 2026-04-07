@@ -1271,7 +1271,7 @@ describe.skipIf(!dbAvailable)("InvoiceService — Advanced Features", () => {
       .whereNotNull("tds_rate")
       .first();
     if (inv) {
-      expect(inv.tds_rate).toBeGreaterThan(0);
+      expect(Number(inv.tds_rate)).toBeGreaterThan(0);
       expect(inv.tds_section).toBeTruthy();
     } else {
       expect(true).toBe(true);

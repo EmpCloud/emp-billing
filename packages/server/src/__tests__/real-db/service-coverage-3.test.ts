@@ -85,6 +85,7 @@ let ORG_ID: string;
 let CLIENT_ID: string;
 let INVOICE_ID: string;
 let ADMIN_ID: string;
+let _createdUserId: string | null = null;
 
 beforeAll(async () => {
   let db: any;
@@ -101,14 +102,17 @@ beforeAll(async () => {
     CLIENT_ID = uuid();
     await db.create("clients", { id: CLIENT_ID, orgId: ORG_ID, name: "Cov3 Client", displayName: "Cov3 Client", email: `cov3-${U}@test.com`, currency: "INR", totalBilled: 0, totalPaid: 0, outstandingBalance: 0, createdAt: new Date(), updatedAt: new Date() });
   }
-  const invoices = await db.findMany("invoices", { where: { org_id: ORG_ID }, limit: 1 });
-  INVOICE_ID = (invoices[0] as any)?.id;
-  if (!INVOICE_ID) {
-    INVOICE_ID = uuid();
-    await db.create("invoices", { id: INVOICE_ID, orgId: ORG_ID, clientId: CLIENT_ID, invoiceNumber: `COV3-${U}`, status: InvoiceStatus.SENT, issueDate: new Date(), dueDate: new Date(Date.now() + 30*86400000), currency: "INR", exchangeRate: 1, subtotal: 100000, discountAmount: 0, taxAmount: 0, total: 100000, amountPaid: 0, amountDue: 100000, createdBy: "system", createdAt: new Date(), updatedAt: new Date() });
-  }
+  // Always create a SENT invoice for this client (portal rejects draft/void)
+  INVOICE_ID = uuid();
+  await db.create("invoices", { id: INVOICE_ID, orgId: ORG_ID, clientId: CLIENT_ID, invoiceNumber: `COV3-${U}`, status: InvoiceStatus.SENT, issueDate: new Date(), dueDate: new Date(Date.now() + 30*86400000), currency: "INR", exchangeRate: 1, subtotal: 100000, discountAmount: 0, taxAmount: 0, total: 100000, amountPaid: 0, amountDue: 100000, tdsRate: 0, tdsAmount: 0, createdBy: "system", createdAt: new Date(), updatedAt: new Date() });
+  // Ensure a user exists in this org for FK constraints (coupons.created_by, scheduled_reports.created_by)
   const users = await db.findMany("users", { where: { org_id: ORG_ID }, limit: 1 });
   ADMIN_ID = (users[0] as any)?.id;
+  if (!ADMIN_ID) {
+    ADMIN_ID = uuid();
+    _createdUserId = ADMIN_ID;
+    await db.create("users", { id: ADMIN_ID, orgId: ORG_ID, email: `cov3-${U}@test-user.com`, passwordHash: "$2b$04$placeholder", firstName: "Cov3", lastName: "Test", role: "admin", isActive: true, emailVerified: false, createdAt: new Date(), updatedAt: new Date() });
+  }
 }, 30000);
 
 afterAll(async () => {
@@ -119,10 +123,13 @@ afterAll(async () => {
   try { await db.raw("DELETE FROM coupons WHERE org_id = ? AND code LIKE '%COV3%'", [ORG_ID]); } catch {}
   try { await db.raw("DELETE FROM dunning_attempts WHERE org_id = ?", [ORG_ID]); } catch {}
   try { await db.raw("DELETE FROM disputes WHERE org_id = ? AND reason LIKE '%cov3%'", [ORG_ID]); } catch {}
-  try { await db.raw("DELETE FROM recurring_profiles WHERE org_id = ? AND created_by = 'cov3-user'", [ORG_ID]); } catch {}
+  try { await db.raw("DELETE FROM recurring_profiles WHERE org_id = ? AND (created_by = 'cov3-user' OR created_by = ?)", [ORG_ID, ADMIN_ID]); } catch {}
   try { await db.raw("DELETE FROM api_keys WHERE org_id = ? AND name LIKE '%cov3%'", [ORG_ID]); } catch {}
   try { await db.raw("DELETE FROM scheduled_reports WHERE org_id = ? AND recipient_email LIKE '%cov3%'", [ORG_ID]); } catch {}
   try { await db.raw("DELETE FROM notifications WHERE org_id = ? AND title LIKE '%cov3%'", [ORG_ID]); } catch {}
+  try { await db.raw("DELETE FROM invoice_items WHERE invoice_id = ?", [INVOICE_ID]); } catch {}
+  try { await db.raw("DELETE FROM invoices WHERE id = ?", [INVOICE_ID]); } catch {}
+  if (_createdUserId) { try { await db.raw("DELETE FROM users WHERE id = ?", [_createdUserId]); } catch {} }
   await closeDB();
 }, 15000);
 
@@ -277,10 +284,10 @@ describe.skipIf(!dbAvailable)("Recurring cov3", () => {
   it("yearly", () => { expect(recurringService.computeNextDate(new Date("2026-01-15"), RecurringFrequency.YEARLY).getFullYear()).toBe(2027); });
   it("custom", () => { expect(recurringService.computeNextDate(new Date("2026-01-15"), RecurringFrequency.CUSTOM, 14).getDate()).toBe(29); });
   it("custom no days", () => { expect(() => recurringService.computeNextDate(new Date(), RecurringFrequency.CUSTOM)).toThrow(); });
-  it("create", async () => { const p = await recurringService.createProfile(ORG_ID, "cov3-user", { clientId: CLIENT_ID, type: "invoice", frequency: RecurringFrequency.MONTHLY, startDate: new Date(), templateData: { items: [] } } as any); pId = p.id; });
+  it("create", async () => { const p = await recurringService.createProfile(ORG_ID, ADMIN_ID, { clientId: CLIENT_ID, type: "invoice", frequency: RecurringFrequency.MONTHLY, startDate: new Date(), templateData: { items: [] } } as any); pId = p.id; });
   it("get", async () => { expect((await recurringService.getProfile(ORG_ID, pId)).id).toBe(pId); });
   it("list", async () => { expect((await recurringService.listProfiles(ORG_ID, {})).data.length).toBeGreaterThan(0); });
-  it("update", async () => { expect((await recurringService.updateProfile(ORG_ID, pId, { frequency: RecurringFrequency.WEEKLY, autoSend: true } as any)).autoSend).toBe(true); });
+  it("update", async () => { expect(Boolean((await recurringService.updateProfile(ORG_ID, pId, { frequency: RecurringFrequency.WEEKLY, autoSend: true } as any)).autoSend)).toBe(true); });
   it("pause", async () => { expect((await recurringService.pauseProfile(ORG_ID, pId)).status).toBe(RecurringStatus.PAUSED); });
   it("pause again", async () => { await expect(recurringService.pauseProfile(ORG_ID, pId)).rejects.toThrow(); });
   it("resume", async () => { expect((await recurringService.resumeProfile(ORG_ID, pId)).status).toBe(RecurringStatus.ACTIVE); });
@@ -295,7 +302,7 @@ describe.skipIf(!dbAvailable)("Dispute cov3", () => {
   it("list", async () => { expect((await disputeService.listDisputes(ORG_ID, { page: 1, limit: 10 } as any))).toHaveProperty("data"); });
   it("create", async () => { const d = await disputeService.createDispute(ORG_ID, CLIENT_ID, { invoiceId: INVOICE_ID, reason: "cov3 dispute" }); dId = d.id; expect(d.status).toBe(DisputeStatus.OPEN); });
   it("get", async () => { expect((await disputeService.getDispute(ORG_ID, dId)).reason).toContain("cov3"); });
-  it("update resolve", async () => { expect((await disputeService.updateDispute(ORG_ID, dId, { status: DisputeStatus.RESOLVED, resolution: "Done", adminNotes: "Notes" }, "admin")).resolvedBy).toBe("admin"); });
+  it("update resolve", async () => { expect((await disputeService.updateDispute(ORG_ID, dId, { status: DisputeStatus.RESOLVED, resolution: "Done", adminNotes: "Notes" }, ADMIN_ID)).resolvedBy).toBe(ADMIN_ID); });
   it("get 404", async () => { await expect(disputeService.getDispute(ORG_ID, uuid())).rejects.toThrow(); });
   it("create no invoice", async () => { expect((await disputeService.createDispute(ORG_ID, CLIENT_ID, { reason: "cov3 general" }))).toHaveProperty("id"); });
 });
@@ -303,14 +310,14 @@ describe.skipIf(!dbAvailable)("Dispute cov3", () => {
 // COUPON SERVICE (45.8% -> 85%+)
 describe.skipIf(!dbAvailable)("Coupon cov3", () => {
   let cId: string;
-  it("create", async () => { const c = await couponService.createCoupon(ORG_ID, "cov3-user", { code: `COV3-${U}`, name: "Cov3", type: CouponType.PERCENTAGE, value: 10, appliesTo: CouponAppliesTo.INVOICE, validFrom: new Date() } as any); cId = c.id; });
+  it("create", async () => { const c = await couponService.createCoupon(ORG_ID, ADMIN_ID, { code: `COV3-${U}`, name: "Cov3", type: CouponType.PERCENTAGE, value: 10, appliesTo: CouponAppliesTo.INVOICE, validFrom: new Date() } as any); cId = c.id; });
   it("list", async () => { expect((await couponService.listCoupons(ORG_ID, { page: 1, limit: 10 } as any))).toHaveProperty("data"); });
   it("list search", async () => { expect((await couponService.listCoupons(ORG_ID, { page: 1, limit: 10, search: "COV3" } as any)).data.length).toBeGreaterThan(0); });
   it("get", async () => { expect((await couponService.getCoupon(ORG_ID, cId)).value).toBe(10); });
   it("update", async () => { expect((await couponService.updateCoupon(ORG_ID, cId, { name: "Updated" } as any)).name).toBe("Updated"); });
   it("validate", async () => { const r = await couponService.validateCoupon(ORG_ID, `COV3-${U}`, 100000); expect(r.valid).toBe(true); });
   it("validate invalid", async () => { await expect(couponService.validateCoupon(ORG_ID, "NONEXIST")).rejects.toThrow(); });
-  it("create dup", async () => { await expect(couponService.createCoupon(ORG_ID, "x", { code: `COV3-${U}`, name: "Dup", type: CouponType.PERCENTAGE, value: 5, appliesTo: CouponAppliesTo.INVOICE, validFrom: new Date() } as any)).rejects.toThrow(); });
+  it("create dup", async () => { await expect(couponService.createCoupon(ORG_ID, ADMIN_ID, { code: `COV3-${U}`, name: "Dup", type: CouponType.PERCENTAGE, value: 5, appliesTo: CouponAppliesTo.INVOICE, validFrom: new Date() } as any)).rejects.toThrow(); });
   it("delete", async () => { await couponService.deleteCoupon(ORG_ID, cId); await expect(couponService.validateCoupon(ORG_ID, `COV3-${U}`)).rejects.toThrow(/active/i); });
 });
 
@@ -349,7 +356,7 @@ describe.skipIf(!dbAvailable)("ScheduledReport cov3", () => {
   it("computeNext daily", () => { expect(scheduledReportService.computeNextSendAt("daily" as any).getHours()).toBe(8); });
   it("computeNext weekly", () => { expect(scheduledReportService.computeNextSendAt("weekly" as any).getDay()).toBe(1); });
   it("computeNext monthly", () => { expect(scheduledReportService.computeNextSendAt("monthly" as any).getDate()).toBe(1); });
-  it("create", async () => { const r = await scheduledReportService.createScheduledReport(ORG_ID, "cov3-user", { reportType: "revenue", frequency: "weekly" as any, recipientEmail: `cov3-${U}@test.com` }); rId = r.id; });
+  it("create", async () => { const r = await scheduledReportService.createScheduledReport(ORG_ID, ADMIN_ID, { reportType: "revenue", frequency: "weekly" as any, recipientEmail: `cov3-${U}@test.com` }); rId = r.id; });
   it("list", async () => { expect((await scheduledReportService.listScheduledReports(ORG_ID)).length).toBeGreaterThan(0); });
   it("update", async () => { expect(await scheduledReportService.updateScheduledReport(ORG_ID, rId, { frequency: "daily" as any })).toBeDefined(); });
   it("getDue", async () => { expect(Array.isArray(await scheduledReportService.getDueReports())).toBe(true); });
