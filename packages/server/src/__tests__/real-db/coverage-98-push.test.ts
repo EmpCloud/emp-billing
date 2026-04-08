@@ -66,7 +66,7 @@ beforeAll(async () => {
     display_name: "Cov98Client", email: `cov98cli-${TS}@billing.test`,
     currency: "INR", payment_terms: 30, outstanding_balance: 0,
     total_billed: 0, total_paid: 0, portal_enabled: false, is_active: true,
-    tax_id: "27AADCB2230M1ZT", state_code: "27",
+    tax_id: "27AADCB2230M1ZT",
   });
   track("clients", TEST_CLIENT_ID);
 
