@@ -12,14 +12,14 @@ process.env.DB_PROVIDER = "mysql";
 process.env.DB_HOST = "localhost";
 process.env.DB_PORT = "3306";
 process.env.DB_USER = "empcloud";
-process.env.DB_PASSWORD = "EmpCloud2026";
+process.env.DB_PASSWORD = process.env.DB_PASSWORD || "";
 process.env.DB_NAME = "emp_billing";
 process.env.NODE_ENV = "test";
 process.env.JWT_ACCESS_SECRET = "test-jwt-secret-for-coverage";
 process.env.JWT_REFRESH_SECRET = "test-jwt-refresh-secret-for-coverage";
 process.env.REDIS_HOST = "localhost";
 process.env.REDIS_PORT = "6379";
-process.env.REDIS_PASSWORD = "fhclG7Q4p1yMnBdxvgX2bRoY0";
+process.env.REDIS_PASSWORD = process.env.REDIS_PASSWORD || "";
 
 // -- Mock side-effects (BEFORE service imports) -----------------------------
 
@@ -87,7 +87,7 @@ import {
 let dbAvailable = false;
 try {
   const { default: _knex } = await import("knex");
-  const _probe = _knex({ client: "mysql2", connection: { host: process.env.DB_HOST || "localhost", port: Number(process.env.DB_PORT) || 3306, user: process.env.DB_USER || "empcloud", password: process.env.DB_PASSWORD || "EmpCloud2026", database: process.env.DB_NAME || "emp_billing" } });
+  const _probe = _knex({ client: "mysql2", connection: { host: process.env.DB_HOST || "localhost", port: Number(process.env.DB_PORT) || 3306, user: process.env.DB_USER || "empcloud", password: process.env.DB_PASSWORD || "", database: process.env.DB_NAME || "emp_billing" } });
   await _probe.raw("SELECT 1");
   await _probe.destroy();
   dbAvailable = true;

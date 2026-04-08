@@ -11,7 +11,7 @@ import knex from "knex";
 // Probe DB connectivity at module level
 let dbAvailable = false;
 try {
-  const probe = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: "EmpCloud2026", database: "emp_billing" }, pool: { min: 0, max: 1 } });
+  const probe = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: process.env.DB_PASSWORD || "", database: "emp_billing" }, pool: { min: 0, max: 1 } });
   await probe.raw("SELECT 1");
   await probe.destroy();
   dbAvailable = true;
@@ -21,14 +21,14 @@ process.env.DB_PROVIDER = "mysql";
 process.env.DB_HOST = "localhost";
 process.env.DB_PORT = "3306";
 process.env.DB_USER = "empcloud";
-process.env.DB_PASSWORD = "EmpCloud2026";
+process.env.DB_PASSWORD = process.env.DB_PASSWORD || "";
 process.env.DB_NAME = "emp_billing";
 process.env.NODE_ENV = "test";
 process.env.JWT_ACCESS_SECRET = "test-jwt-secret-for-realdb-push";
 process.env.JWT_REFRESH_SECRET = "test-jwt-refresh-for-realdb-push";
 process.env.REDIS_HOST = "localhost";
 process.env.REDIS_PORT = "6379";
-process.env.REDIS_PASSWORD = "fhclG7Q4p1yMnBdxvgX2bRoY0";
+process.env.REDIS_PASSWORD = process.env.REDIS_PASSWORD || "";
 process.env.BCRYPT_ROUNDS = "4";
 process.env.CORS_ORIGIN = "https://test-billing.empcloud.com";
 

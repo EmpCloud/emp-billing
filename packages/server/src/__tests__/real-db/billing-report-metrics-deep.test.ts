@@ -9,7 +9,7 @@ import { v4 as uuid } from "uuid";
 let db: Knex;
 let dbAvailable = false;
 try {
-  const _probe = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: "EmpCloud2026", database: "emp_billing" } });
+  const _probe = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: process.env.DB_PASSWORD || "", database: "emp_billing" } });
   await _probe.raw("SELECT 1");
   await _probe.destroy();
   dbAvailable = true;
@@ -23,7 +23,7 @@ const PLAN_ID = uuid();
 
 beforeAll(async () => {
   try {
-  db = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: "EmpCloud2026", database: "emp_billing" } });
+  db = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: process.env.DB_PASSWORD || "", database: "emp_billing" } });
   await db.raw("SELECT 1");
   } catch { dbAvailable = false; return; }
   await db("organizations").insert({ id: ORG_ID, name: `ROrg-${TS}`, legal_name: `ROrg-${TS}`, email: `rorg-${TS}@test.t`, address: JSON.stringify({ line1: "4 R St", city: "Hyderabad", state: "TS", zip: "500001", country: "IN" }), default_currency: "INR", country: "IN", invoice_prefix: "RINV", quote_prefix: "RQTE" });

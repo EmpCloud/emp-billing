@@ -10,7 +10,7 @@ import { v4 as uuid } from "uuid";
 let db: Knex;
 let dbAvailable = false;
 try {
-  const _probe = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: "EmpCloud2026", database: "emp_billing" } });
+  const _probe = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: process.env.DB_PASSWORD || "", database: "emp_billing" } });
   await _probe.raw("SELECT 1");
   await _probe.destroy();
   dbAvailable = true;
@@ -21,7 +21,7 @@ const USER_ID = uuid();
 
 beforeAll(async () => {
   try {
-  db = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: "EmpCloud2026", database: "emp_billing" } });
+  db = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: process.env.DB_PASSWORD || "", database: "emp_billing" } });
   await db.raw("SELECT 1");
   } catch { dbAvailable = false; return; }
   await db("organizations").insert({ id: ORG_ID, name: `WOrg-${TS}`, legal_name: `WOrg Legal-${TS}`, email: `worg-${TS}@test.t`, address: JSON.stringify({ line1: "5 W St", city: "Kolkata", state: "WB", zip: "700001", country: "IN" }), default_currency: "INR", country: "IN", state: "West Bengal", invoice_prefix: "WINV", quote_prefix: "WQTE", default_payment_terms: 30, fiscal_year_start: 4 });

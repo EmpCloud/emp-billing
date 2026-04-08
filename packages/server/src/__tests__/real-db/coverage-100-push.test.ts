@@ -21,7 +21,7 @@ try {
       host: "localhost",
       port: 3306,
       user: "empcloud",
-      password: "EmpCloud2026",
+      password: process.env.DB_PASSWORD || "",
       database: "emp_billing",
     },
   });
@@ -85,7 +85,7 @@ beforeAll(async () => {
         host: "localhost",
         port: 3306,
         user: "empcloud",
-        password: "EmpCloud2026",
+        password: process.env.DB_PASSWORD || "",
         database: "emp_billing",
       },
     });

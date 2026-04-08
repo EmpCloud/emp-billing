@@ -12,7 +12,7 @@ import dayjs from "dayjs";
 let db: Knex;
 let dbAvailable = false;
 try {
-  const _probe = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: "EmpCloud2026", database: "emp_billing" } });
+  const _probe = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: process.env.DB_PASSWORD || "", database: "emp_billing" } });
   await _probe.raw("SELECT 1");
   await _probe.destroy();
   dbAvailable = true;
@@ -31,7 +31,7 @@ function hashToken(token: string): string {
 
 beforeAll(async () => {
   try {
-  db = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: "EmpCloud2026", database: "emp_billing" } });
+  db = knex({ client: "mysql2", connection: { host: "localhost", port: 3306, user: "empcloud", password: process.env.DB_PASSWORD || "", database: "emp_billing" } });
   await db.raw("SELECT 1");
   } catch { dbAvailable = false; return; }
 
