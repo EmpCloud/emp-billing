@@ -47,7 +47,7 @@ beforeAll(async () => {
     default_currency: "INR", country: "IN",
     invoice_prefix: "TC98", invoice_next_number: 1,
     quote_prefix: "TQ98", quote_next_number: 1,
-    gstin: "29AABCU9603R1ZM", state_code: "29",
+    tax_id: "29AABCU9603R1ZM", state: "Karnataka",
     timezone: "Asia/Kolkata",
   });
   track("organizations", TEST_ORG_ID);
