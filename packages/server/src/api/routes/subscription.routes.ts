@@ -44,7 +44,7 @@ router.get("/:id/events",  asyncHandler(subscriptionController.getSubscriptionEv
 
 /** Force-renew a subscription: generates a new invoice and advances the period */
 router.post("/:id/force-renew", asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   logger.info(`[Admin] Force-renewing subscription ${id}`);
   const result = await subscriptionService.renewSubscription(id);
   res.json({ success: true, data: result });
@@ -52,7 +52,7 @@ router.post("/:id/force-renew", asyncHandler(async (req, res) => {
 
 /** Time-shift a subscription's next billing date to trigger renewal on next worker run */
 router.post("/:id/time-shift", asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const db = await getDB();
   await db.update("subscriptions", id, {
     nextBillingDate: new Date(Date.now() - 86400000), // yesterday

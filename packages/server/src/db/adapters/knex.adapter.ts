@@ -162,7 +162,7 @@ export class KnexAdapter implements IDBAdapter {
     return this.knex(table).where(where).delete();
   }
 
-  async raw<T>(query: string, bindings: unknown[] = []): Promise<T> {
+  async raw<T>(query: string, bindings: (string | number | boolean | null)[] = []): Promise<T> {
     const result = await this.knex.raw(query, bindings);
     return (config.db.provider === "pg" ? result.rows : result[0]) as T;
   }
