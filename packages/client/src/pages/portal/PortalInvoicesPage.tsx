@@ -18,6 +18,41 @@ import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import type { Invoice } from "@emp-billing/shared";
 
+// ── Razorpay checkout SDK loader ───────────────────────────────────────────
+// The Razorpay client SDK is loaded on demand (rather than eagerly in
+// index.html) so portal pages without payments avoid the extra request.
+const RAZORPAY_SDK_URL = "https://checkout.razorpay.com/v1/checkout.js";
+
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined") {
+      resolve(false);
+      return;
+    }
+    const w = window as unknown as Record<string, unknown>;
+    if (typeof w.Razorpay === "function") {
+      resolve(true);
+      return;
+    }
+    const existing = document.querySelector<HTMLScriptElement>(
+      `script[src="${RAZORPAY_SDK_URL}"]`
+    );
+    if (existing) {
+      existing.addEventListener("load", () => resolve(true));
+      existing.addEventListener("error", () => resolve(false));
+      // If the script already finished loading before we attached listeners.
+      if (typeof w.Razorpay === "function") resolve(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = RAZORPAY_SDK_URL;
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
 function DownloadPdfButton({ invoiceId }: { invoiceId: string }) {
   const downloadPdf = useDownloadPortalInvoicePdf(invoiceId);
   const [loading, setLoading] = useState(false);
@@ -112,7 +147,7 @@ function PayNowModal({
 }) {
   const { data: gatewaysRes, isLoading: gatewaysLoading } = usePortalPaymentGateways();
   const createPayment = usePortalCreatePayment();
-  const { pay, isPending } = usePortalPay();
+  const { isPending } = usePortalPay();
 
   const gateways = (gatewaysRes?.data ?? []) as Array<{ name: string; displayName: string }>;
 
@@ -147,21 +182,58 @@ function PayNowModal({
         return;
       }
 
-      // Razorpay: open checkout popup if the SDK is loaded, otherwise show order info
-      if (gatewayName === "razorpay" && typeof (window as unknown as Record<string, unknown>).Razorpay === "function") {
-        const RazorpayConstructor = (window as unknown as Record<string, unknown>).Razorpay as new (opts: Record<string, unknown>) => { open: () => void };
+      // Razorpay: client-side SDK flow
+      if (gatewayName === "razorpay") {
+        const keyId = order.metadata?.keyId as string | undefined;
+        const amount = order.metadata?.amount as number | undefined;
+        const currency = order.metadata?.currency as string | undefined;
+
+        if (!order.gatewayOrderId || !keyId) {
+          toast.error(
+            "Payment session data is incomplete. Please try again or contact support."
+          );
+          return;
+        }
+
+        // Lazy-load the Razorpay checkout SDK if it hasn't been loaded yet
+        const sdkLoaded = await loadRazorpayScript();
+        if (!sdkLoaded) {
+          toast.error(
+            "Could not load the Razorpay checkout SDK. Check your network and try again."
+          );
+          return;
+        }
+
+        const RazorpayConstructor = (window as unknown as Record<string, unknown>).Razorpay as
+          | (new (opts: Record<string, unknown>) => { open: () => void; on?: (event: string, cb: (resp: unknown) => void) => void })
+          | undefined;
+        if (typeof RazorpayConstructor !== "function") {
+          toast.error("Razorpay checkout is unavailable right now. Please try again.");
+          return;
+        }
+
         const rzp = new RazorpayConstructor({
-          key: order.metadata?.keyId as string | undefined,
+          key: keyId,
           order_id: order.gatewayOrderId,
-          amount: order.metadata?.amount as number | undefined,
-          currency: order.metadata?.currency as string | undefined,
+          amount,
+          currency,
           name: invoice.invoiceNumber,
           description: `Payment for ${invoice.invoiceNumber}`,
           handler: () => {
-            toast.success("Payment successful!");
+            toast.success("Payment successful! It will reflect on your invoice shortly.");
             onClose();
           },
+          modal: {
+            ondismiss: () => {
+              toast("Payment cancelled.", { icon: "ℹ️" });
+            },
+          },
         });
+        if (typeof rzp.on === "function") {
+          rzp.on("payment.failed", () => {
+            toast.error("Payment failed. Please try again or use another method.");
+          });
+        }
         rzp.open();
         return;
       }
@@ -253,35 +325,20 @@ function PayNowModal({
 // ── Pay Now Button (inline, for single-gateway shortcut) ───────────────────
 
 function PayNowButton({
-  invoice,
   onOpenModal,
 }: {
   invoice: Invoice;
   onOpenModal: () => void;
 }) {
-  const { data: gatewaysRes, isLoading: gatewaysLoading } = usePortalPaymentGateways();
-  const { pay, isPending } = usePortalPay();
-
-  const gateways = (gatewaysRes?.data ?? []) as Array<{ name: string; displayName: string }>;
-
-  const handleClick = async () => {
-    // If still loading gateways or multiple gateways, open the modal
-    if (gatewaysLoading || gateways.length !== 1) {
-      onOpenModal();
-      return;
-    }
-
-    // Single gateway: pay directly without opening modal
-    await pay(invoice.id, gateways[0].name);
-  };
-
+  // Always open the Pay modal — it handles both the single-gateway shortcut
+  // (auto-triggers payment) and multi-gateway selection. Bypassing the modal
+  // here previously meant Razorpay never opened its checkout popup because
+  // the SDK loader and order-data validation live inside the modal handler.
   return (
     <Button
       variant="primary"
       size="sm"
-      onClick={handleClick}
-      loading={isPending}
-      disabled={isPending}
+      onClick={onOpenModal}
       icon={<CreditCard className="h-3.5 w-3.5" />}
     >
       Pay Now

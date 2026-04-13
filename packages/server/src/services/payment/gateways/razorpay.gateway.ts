@@ -60,6 +60,7 @@ export class RazorpayGateway implements IPaymentGateway {
   readonly displayName = "Razorpay";
 
   private razorpay: Razorpay;
+  private keyId: string;
   private keySecret: string;
   private webhookSecret: string;
 
@@ -68,6 +69,7 @@ export class RazorpayGateway implements IPaymentGateway {
       key_id: config.keyId,
       key_secret: config.keySecret,
     });
+    this.keyId = config.keyId;
     this.keySecret = config.keySecret;
     this.webhookSecret = config.webhookSecret;
     logger.info("Razorpay payment gateway initialized");
@@ -91,9 +93,13 @@ export class RazorpayGateway implements IPaymentGateway {
 
     return {
       gatewayOrderId: order.id,
-      // No checkoutUrl — Razorpay uses client-side SDK for checkout UI
+      // No checkoutUrl — Razorpay uses client-side SDK for checkout UI.
+      // The frontend needs `keyId` (the public Razorpay key) to initialize
+      // the checkout modal — without it `new window.Razorpay({ key: undefined })`
+      // silently fails to open the payment session.
       metadata: {
         orderId: order.id,
+        keyId: this.keyId,
         amount: order.amount,
         currency: order.currency,
         receipt: order.receipt,
