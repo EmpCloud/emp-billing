@@ -11,3 +11,8 @@ packages/*/dist/
 
 .deployment.env
 *.deployment.env
+
+# TypeScript incremental build cache. Per-machine artifact — when committed
+# it tells `tsc` 'everything is up to date' on whatever box pulls it,
+# causing the compiler to skip emit and ship stale dist/.
+*.tsbuildinfo
