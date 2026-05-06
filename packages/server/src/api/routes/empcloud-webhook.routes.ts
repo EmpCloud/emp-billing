@@ -162,7 +162,19 @@ router.post("/", asyncHandler(async (req, res) => {
 
       if (existingSub) {
         logger.info(`Subscription already exists for EmpCloud sub ${body.subscription_id}, skipping`);
-        res.json({ success: true, acknowledged: true, subscription_id: existingSub.id });
+        // Surface the client + plan ids on the idempotent path too so the
+        // EmpCloud caller can still persist the mapping if it lost track.
+        const existingFull = await db.findById<{ id: string; client_id: string; plan_id: string }>(
+          "subscriptions",
+          existingSub.id,
+        );
+        res.json({
+          success: true,
+          acknowledged: true,
+          subscription_id: existingSub.id,
+          client_id: existingFull?.client_id ?? clientId,
+          plan_id: existingFull?.plan_id ?? null,
+        });
         return;
       }
 
@@ -284,6 +296,8 @@ router.post("/", asyncHandler(async (req, res) => {
         success: true,
         acknowledged: true,
         subscription_id: subId,
+        client_id: clientId,
+        plan_id: plan.id,
         invoice_id: invoiceId,
         invoice_number: invoiceNumber,
       });
