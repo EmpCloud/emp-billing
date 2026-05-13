@@ -793,6 +793,26 @@ export async function renewSubscription(subscriptionId: string): Promise<{ invoi
     metadata: { invoiceId, total },
   });
 
+  const client = await db.findById<{ email: string; portalEmail?: string }>(
+    "clients",
+    subscription.clientId,
+    subscription.orgId,
+  );
+
+  emit("invoice.created", {
+    orgId: subscription.orgId,
+    invoiceId,
+    invoice: {
+      id: invoiceId,
+      clientId: subscription.clientId,
+      clientEmail: client?.portalEmail ?? client?.email,
+      invoiceNumber,
+      total,
+      currency: plan.currency,
+      source: "subscription-renewal",
+    } as unknown as Record<string, unknown>,
+  });
+
   emit("subscription.renewed", {
     orgId: subscription.orgId,
     subscriptionId,

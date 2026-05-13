@@ -275,6 +275,26 @@ router.post("/", asyncHandler(async (req, res) => {
 
       logger.info(`Created subscription ${subId} and invoice ${invoiceNumber} for EmpCloud org ${body.organization_id}`);
 
+      const invoiceClient = await db.findById<{ email: string; portalEmail?: string }>(
+        "clients",
+        clientId,
+        orgId,
+      );
+
+      emit("invoice.created", {
+        orgId,
+        invoiceId,
+        invoice: {
+          id: invoiceId,
+          clientId,
+          clientEmail: invoiceClient?.portalEmail ?? invoiceClient?.email,
+          invoiceNumber,
+          total: lineTotal,
+          currency: body.currency || "INR",
+          source: "subscription-created",
+        } as unknown as Record<string, unknown>,
+      });
+
       emit("subscription.created", {
         orgId,
         subscriptionId: subId,
