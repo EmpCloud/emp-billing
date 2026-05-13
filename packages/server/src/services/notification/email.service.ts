@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import * as aws from "@aws-sdk/client-ses";
+import sgMail from "@sendgrid/mail";
 import Handlebars from "handlebars";
 import fs from "fs";
 import path from "path";
@@ -10,9 +11,24 @@ import { getDB } from "../../db/adapters/index";
 
 // ============================================================================
 // EMAIL SERVICE
+//
+// Transport selection (in order):
+//   1. SendGrid HTTPS API via @sendgrid/mail — when SENDGRID_API_KEY is set.
+//      Preferred in prod (mirrors EmpCloud HRMS).
+//   2. nodemailer transport (SMTP / SES) — based on EMAIL_PROVIDER.
+//   3. No-op — neither configured. Logs the would-be delivery and returns.
 // ============================================================================
 
 let transporter: Transporter | null = null;
+let sendgridReady = false;
+
+function ensureSendgrid(): boolean {
+  if (sendgridReady) return true;
+  if (!config.sendgrid.apiKey) return false;
+  sgMail.setApiKey(config.sendgrid.apiKey);
+  sendgridReady = true;
+  return true;
+}
 
 // ── Transport ───────────────────────────────────────────────────────────────
 
@@ -82,12 +98,16 @@ export function createTransport(): Transporter {
  * Call once during server bootstrap.
  */
 export function logEmailConfig(): void {
-  const provider = config.email.provider;
-
-  if (provider === "sendgrid" && config.sendgrid.apiKey) {
-    logger.info("Email: SendGrid configured");
+  // SendGrid SDK path takes precedence whenever an API key is present,
+  // regardless of EMAIL_PROVIDER (matches EmpCloud HRMS behaviour).
+  if (config.sendgrid.apiKey) {
+    logger.info("Email: SendGrid configured (HTTPS API via @sendgrid/mail)", {
+      from: config.smtp.from,
+    });
     return;
   }
+
+  const provider = config.email.provider;
 
   if (provider === "ses" && config.ses.accessKey) {
     logger.info("Email: AWS SES configured", { region: config.ses.region });
@@ -144,6 +164,33 @@ export async function sendEmail(
   subject: string,
   html: string,
 ): Promise<void> {
+  if (ensureSendgrid()) {
+    try {
+      const [res] = await sgMail.send({
+        to,
+        from: { email: config.smtp.from, name: config.smtp.fromName },
+        subject,
+        html,
+      });
+      logger.info("Email sent via SendGrid", {
+        to,
+        subject,
+        messageId: res?.headers?.["x-message-id"],
+      });
+      return;
+    } catch (err: unknown) {
+      const e = err as { response?: { body?: { errors?: { message?: string }[] } }; message?: string };
+      const detail =
+        e?.response?.body?.errors?.map((x) => x.message).join("; ") ||
+        e?.message ||
+        String(err);
+      logger.error("SendGrid send failed", { to, subject, detail });
+      if (config.email.provider === "sendgrid") {
+        return;
+      }
+    }
+  }
+
   const transport = createTransport();
   try {
     const info = await transport.sendMail({
@@ -152,10 +199,14 @@ export async function sendEmail(
       subject,
       html,
     });
-    logger.info("Email sent", { to, subject, messageId: info.messageId });
+    logger.info("Email sent via nodemailer", {
+      to,
+      subject,
+      messageId: info.messageId,
+      provider: config.email.provider,
+    });
   } catch (err) {
-    logger.error("Email send failed", { to, subject, err });
-    throw err;
+    logger.error("Email send failed (nodemailer)", { to, subject, err });
   }
 }
 
