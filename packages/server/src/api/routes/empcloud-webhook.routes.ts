@@ -33,38 +33,79 @@ interface EmpCloudEvent {
   period_start?: string;
   period_end?: string;
   trial_end?: string;
+  // Real deliverable email for the org owner / admin. Used as the client's
+  // `email` (the invoice "to" address). Optional for backwards-compat with
+  // older EmpCloud builds — if absent we fall back to the synthetic
+  // address, which sends but isn't deliverable.
+  admin_email?: string;
+  org_name?: string;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
  * Find or create a billing client for the given EmpCloud organization.
- * Uses a convention-based lookup: empcloud org ID mapped to a billing client.
+ *
+ * Lookup is by `customFields.empcloud_org_id` — a stable id that never
+ * changes for the lifetime of an EmpCloud org. The earlier version looked
+ * up by `email = org-{N}@empcloud.internal` which converged the two
+ * provisioning paths (BillingPage's auto-provision + this webhook) but
+ * meant invoice emails were sent to a domain nobody owns. By keying on
+ * the metadata field instead, both paths still converge AND the client's
+ * `email` column stays a real deliverable address.
+ *
+ * Self-heal: when an inbound webhook carries a different `admin_email`
+ * than the stored value (e.g. the org changed owners, or the older
+ * synthetic email is still on file from before this fix), update the
+ * client to the new address so future invoice emails land in the right
+ * mailbox without manual SQL.
  */
 async function findOrCreateClient(
   orgId: string,
   empcloudOrgId: number,
-  moduleSlug: string
+  moduleSlug: string,
+  adminEmail: string | undefined,
+  orgName: string | undefined,
 ): Promise<string> {
   const db = await getDB();
+  const knex = (db as KnexAdapter).getKnex();
 
-  // Look up existing client by empcloud metadata
-  const existing = await db.findOne<{ id: string }>("clients", {
-    org_id: orgId,
-    email: `org-${empcloudOrgId}@empcloud.internal`,
-  });
+  // Look up by stable empcloud_org_id stored in custom_fields JSON.
+  const existing = await knex("clients")
+    .where({ org_id: orgId })
+    .whereRaw("JSON_EXTRACT(custom_fields, '$.empcloud_org_id') = ?", [empcloudOrgId])
+    .first();
 
-  if (existing) return existing.id;
+  if (existing) {
+    // Self-heal: if the caller now sends a real email and the stored one
+    // is either the legacy synthetic address or simply different, update
+    // to the latest. Skip the UPDATE if nothing changed to keep the
+    // query log clean.
+    if (adminEmail && existing.email !== adminEmail) {
+      await knex("clients")
+        .where({ id: existing.id })
+        .update({ email: adminEmail, updated_at: new Date() });
+      logger.info(
+        `Self-healed billing client ${existing.id} email: ${existing.email} → ${adminEmail}`,
+      );
+    }
+    return existing.id;
+  }
 
-  // Auto-provision a client record for this EmpCloud organization
+  // First-time provisioning for this EmpCloud org.
   const clientId = uuid();
   const now = new Date();
+  // Fall back to the synthetic address only when the caller didn't send
+  // a real one. New EmpCloud builds always do.
+  const email = adminEmail || `org-${empcloudOrgId}@empcloud.internal`;
+  const name = orgName || `EmpCloud Org #${empcloudOrgId}`;
+
   await db.create("clients", {
     id: clientId,
     orgId,
-    name: `EmpCloud Org #${empcloudOrgId}`,
-    displayName: `EmpCloud Organization ${empcloudOrgId}`,
-    email: `org-${empcloudOrgId}@empcloud.internal`,
+    name,
+    displayName: name,
+    email,
     phone: null,
     taxId: null,
     currency: "INR",
@@ -81,7 +122,7 @@ async function findOrCreateClient(
     updatedAt: now,
   });
 
-  logger.info(`Auto-provisioned billing client ${clientId} for EmpCloud org ${empcloudOrgId}`);
+  logger.info(`Auto-provisioned billing client ${clientId} for EmpCloud org ${empcloudOrgId} (email=${email})`);
   return clientId;
 }
 
@@ -145,7 +186,13 @@ router.post("/", asyncHandler(async (req, res) => {
   switch (eventType) {
     case "subscription.created": {
       // Find or create client for this EmpCloud org
-      const clientId = await findOrCreateClient(orgId, body.organization_id, body.module_slug);
+      const clientId = await findOrCreateClient(
+        orgId,
+        body.organization_id,
+        body.module_slug,
+        body.admin_email,
+        body.org_name,
+      );
 
       // Idempotency check. Two concurrent webhooks for the same EmpCloud
       // subscription must converge on a single billing subscription/invoice,

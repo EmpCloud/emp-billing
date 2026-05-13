@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import { getDB } from "../../db/adapters/index";
+import { KnexAdapter } from "../../db/adapters/knex.adapter";
 import { NotFoundError, ConflictError } from "../../utils/AppError";
 import { formatMoney } from "@emp-billing/shared";
 import { emit } from "../../events/index";
@@ -369,6 +370,36 @@ export async function autoProvisionClient(
   input: z.infer<typeof AutoProvisionClientSchema>
 ): Promise<AutoProvisionResult> {
   const db = await getDB();
+
+  // Stable lookup by metadata.empcloud_org_id (when present) — this
+  // mirrors what the empcloud-webhook handler does in findOrCreateClient.
+  // Without this convergence, the BillingPage's auto-provision call and
+  // the subscription-created webhook each see "no match" by email and
+  // create separate client rows for the same EmpCloud org, leaving
+  // invoices on one row and the EmpCloud-side mapping pointing at the
+  // other.
+  const empcloudOrgId =
+    input.metadata && typeof (input.metadata as Record<string, unknown>).empcloud_org_id !== "undefined"
+      ? (input.metadata as Record<string, unknown>).empcloud_org_id
+      : undefined;
+  if (empcloudOrgId !== undefined) {
+    const knex = (db as KnexAdapter).getKnex();
+    const existingByOrg = await knex("clients")
+      .where({ org_id: orgId })
+      .whereRaw("JSON_EXTRACT(custom_fields, '$.empcloud_org_id') = ?", [empcloudOrgId])
+      .first();
+    if (existingByOrg) {
+      // Self-heal email if the caller now has a real one and we stored
+      // a placeholder previously.
+      if (input.email && existingByOrg.email !== input.email) {
+        await knex("clients")
+          .where({ id: existingByOrg.id })
+          .update({ email: input.email, updated_at: new Date() });
+      }
+      const client = await getClient(orgId, existingByOrg.id);
+      return { client, isNew: false };
+    }
+  }
 
   // Check if a client with this email already exists for the org
   const existing = await db.findOne<Client>("clients", { org_id: orgId, email: input.email });
