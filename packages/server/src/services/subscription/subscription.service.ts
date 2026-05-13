@@ -817,7 +817,13 @@ export async function renewSubscription(subscriptionId: string): Promise<{ invoi
   emit("subscription.renewed", {
     orgId: subscription.orgId,
     subscriptionId,
-    subscription: { id: subscriptionId, planId: subscription.planId },
+    subscription: {
+      id: subscriptionId,
+      planId: subscription.planId,
+      currentPeriodStart: newPeriodStart,
+      currentPeriodEnd: newPeriodEnd,
+      nextBillingDate: dayjs(newPeriodEnd).format("YYYY-MM-DD"),
+    },
     planId: subscription.planId,
     clientId: subscription.clientId,
   });
