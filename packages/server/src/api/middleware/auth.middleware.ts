@@ -3,9 +3,9 @@ import jwt from "jsonwebtoken";
 import { config } from "../../config/index";
 import { UnauthorizedError } from "../../utils/AppError";
 import type { AuthUser } from "@emp-billing/shared";
-import { getDB } from "../../db/adapters/index";
 import { UserRole } from "@emp-billing/shared";
 import { validateApiKey } from "../../services/auth/api-key.service";
+import { ensureEmpCloudBillingOrg } from "../../services/auth/empcloud-bootstrap.service";
 
 // Extend Express Request
 declare global {
@@ -39,34 +39,20 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   // Check if this is the EmpCloud integration API key
   const empcloudApiKey = config.empcloud?.apiKey || process.env.EMPCLOUD_API_KEY;
   if (empcloudApiKey && token === empcloudApiKey) {
-    // Look up the first active org in billing DB for the system user
-    // This allows the EmpCloud proxy to query invoices/payments scoped to the org
-    getDB()
-      .then((db) => db.findOne<{ id: string }>("organizations", { is_active: true }))
-      .then((org) => {
+    ensureEmpCloudBillingOrg()
+      .then((identity) => {
         req.user = {
-          id: "empcloud-system",
+          id: identity.userId,
           email: "system@empcloud.com",
           role: UserRole.ADMIN as AuthUser["role"],
-          orgId: org?.id || "",
+          orgId: identity.orgId,
           orgName: "EmpCloud",
           firstName: "EmpCloud",
           lastName: "System",
         };
         next();
       })
-      .catch(() => {
-        req.user = {
-          id: "empcloud-system",
-          email: "system@empcloud.com",
-          role: UserRole.ADMIN as AuthUser["role"],
-          orgId: "",
-          orgName: "EmpCloud",
-          firstName: "EmpCloud",
-          lastName: "System",
-        };
-        next();
-      });
+      .catch(next);
     return;
   }
 
