@@ -28,8 +28,10 @@ interface EmpCloudEvent {
   price_per_seat: number;
   currency?: string;
   billing_cycle: string;
+  status?: string;
   period_start?: string;
   period_end?: string;
+  trial_end?: string;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -207,21 +209,24 @@ router.post("/", asyncHandler(async (req, res) => {
         ? new Date(body.period_end)
         : computePeriodEnd(periodStart, body.billing_cycle);
 
+      const trialEndDate = body.trial_end ? new Date(body.trial_end) : null;
+      const isTrial = body.status === "trial" || (trialEndDate !== null && trialEndDate > now);
+
       await db.create("subscriptions", {
         id: subId,
         orgId,
         clientId,
         planId: plan.id,
-        status: "active",
+        status: isTrial ? "trialing" : "active",
         currentPeriodStart: periodStart,
         currentPeriodEnd: periodEnd,
-        trialStart: null,
-        trialEnd: null,
+        trialStart: isTrial ? periodStart : null,
+        trialEnd: isTrial ? trialEndDate : null,
         cancelledAt: null,
         cancelReason: null,
         pauseStart: null,
         resumeDate: null,
-        nextBillingDate: dayjs(periodEnd).format("YYYY-MM-DD"),
+        nextBillingDate: dayjs(isTrial && trialEndDate ? trialEndDate : periodEnd).format("YYYY-MM-DD"),
         quantity: body.total_seats || 1,
         metadata: JSON.stringify({
           empcloud_subscription_id: body.subscription_id,
@@ -234,71 +239,82 @@ router.post("/", asyncHandler(async (req, res) => {
         updatedAt: now,
       });
 
-      // Generate first invoice
-      const invoiceId = uuid();
-      const invoiceNumber = await nextInvoiceNumber(orgId);
-      const lineTotal = (body.price_per_seat || 0) * (body.total_seats || 1);
+      let invoiceId: string | null = null;
+      let invoiceNumber: string | null = null;
+      let lineTotal = 0;
 
-      await db.create("invoices", {
-        id: invoiceId,
-        orgId,
-        clientId,
-        invoiceNumber,
-        status: "draft",
-        issueDate: dayjs(now).format("YYYY-MM-DD"),
-        dueDate: dayjs(now).add(30, "day").format("YYYY-MM-DD"),
-        subtotal: lineTotal,
-        discountAmount: 0,
-        taxAmount: 0,
-        total: lineTotal,
-        amountPaid: 0,
-        amountDue: lineTotal,
-        currency: body.currency || "INR",
-        notes: `Auto-generated invoice for ${body.module_name || body.module_slug} subscription (EmpCloud org ${body.organization_id})`,
-        createdBy,
-        createdAt: now,
-        updatedAt: now,
-      });
+      if (!isTrial) {
+        // Generate first invoice immediately for paid subscriptions.
+        // Trials defer invoice creation until the renewal worker fires on
+        // trialEnd — this is the standard SaaS flow (free trial, then bill).
+        invoiceId = uuid();
+        invoiceNumber = await nextInvoiceNumber(orgId);
+        lineTotal = (body.price_per_seat || 0) * (body.total_seats || 1);
 
-      // Create invoice line item
-      await db.create("invoice_items", {
-        id: uuid(),
-        invoiceId,
-        orgId,
-        name: `${body.module_name || body.module_slug} — ${body.plan_tier}`,
-        description: `${body.total_seats} seats at ${body.price_per_seat} per seat`,
-        quantity: body.total_seats || 1,
-        rate: body.price_per_seat || 0,
-        amount: lineTotal,
-        sortOrder: 0,
-      });
-
-      logger.info(`Created subscription ${subId} and invoice ${invoiceNumber} for EmpCloud org ${body.organization_id}`);
-
-      const invoiceClient = await db.findById<{ email: string; portalEmail?: string }>(
-        "clients",
-        clientId,
-        orgId,
-      );
-
-      emit("invoice.created", {
-        orgId,
-        invoiceId,
-        invoice: {
+        await db.create("invoices", {
           id: invoiceId,
+          orgId,
           clientId,
-          clientEmail: invoiceClient?.portalEmail ?? invoiceClient?.email,
           invoiceNumber,
+          status: "draft",
+          issueDate: dayjs(now).format("YYYY-MM-DD"),
+          dueDate: dayjs(now).add(30, "day").format("YYYY-MM-DD"),
+          subtotal: lineTotal,
+          discountAmount: 0,
+          taxAmount: 0,
           total: lineTotal,
+          amountPaid: 0,
+          amountDue: lineTotal,
           currency: body.currency || "INR",
-          source: "subscription-created",
-        } as unknown as Record<string, unknown>,
-      });
+          notes: `Auto-generated invoice for ${body.module_name || body.module_slug} subscription (EmpCloud org ${body.organization_id})`,
+          createdBy,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        await db.create("invoice_items", {
+          id: uuid(),
+          invoiceId,
+          orgId,
+          name: `${body.module_name || body.module_slug} — ${body.plan_tier}`,
+          description: `${body.total_seats} seats at ${body.price_per_seat} per seat`,
+          quantity: body.total_seats || 1,
+          rate: body.price_per_seat || 0,
+          amount: lineTotal,
+          sortOrder: 0,
+        });
+
+        logger.info(`Created subscription ${subId} and invoice ${invoiceNumber} for EmpCloud org ${body.organization_id}`);
+      } else {
+        logger.info(`Created trial subscription ${subId} for EmpCloud org ${body.organization_id}, trialEnd=${trialEndDate?.toISOString()}`);
+      }
+
+      if (invoiceId) {
+        const invoiceClient = await db.findById<{ email: string; portalEmail?: string }>(
+          "clients",
+          clientId,
+          orgId,
+        );
+
+        emit("invoice.created", {
+          orgId,
+          invoiceId,
+          invoice: {
+            id: invoiceId,
+            clientId,
+            clientEmail: invoiceClient?.portalEmail ?? invoiceClient?.email,
+            invoiceNumber,
+            total: lineTotal,
+            currency: body.currency || "INR",
+            source: "subscription-created",
+          } as unknown as Record<string, unknown>,
+        });
+      }
 
       emit("subscription.created", {
         orgId,
         subscriptionId: subId,
-        subscription: { id: subId, clientId, planId: plan.id, status: "active" },
+        subscription: { id: subId, clientId, planId: plan.id, status: isTrial ? "trialing" : "active" },
         planId: plan.id,
         clientId,
       });
@@ -337,12 +353,38 @@ router.post("/", asyncHandler(async (req, res) => {
       }
 
       const now = new Date();
-      await db.update("subscriptions", match.id, {
+      const trialEndDate = body.trial_end ? new Date(body.trial_end) : null;
+      const isTrial = body.status === "trial" || (trialEndDate !== null && trialEndDate > now);
+      const periodStartUpdate = body.period_start ? new Date(body.period_start) : undefined;
+      const periodEndUpdate = body.period_end ? new Date(body.period_end) : undefined;
+
+      const updatePayload: Record<string, unknown> = {
         quantity: body.total_seats || 1,
         updatedAt: now,
-      }, orgId);
+      };
 
-      logger.info(`Updated subscription ${match.id} for EmpCloud org ${body.organization_id}`);
+      if (body.status) {
+        updatePayload.status = isTrial ? "trialing" : "active";
+        updatePayload.trialEnd = isTrial ? trialEndDate : null;
+        updatePayload.trialStart = isTrial ? (periodStartUpdate ?? now) : null;
+      }
+
+      if (periodStartUpdate) {
+        updatePayload.currentPeriodStart = periodStartUpdate;
+      }
+      if (periodEndUpdate) {
+        updatePayload.currentPeriodEnd = periodEndUpdate;
+        updatePayload.nextBillingDate = dayjs(
+          isTrial && trialEndDate ? trialEndDate : periodEndUpdate,
+        ).format("YYYY-MM-DD");
+      }
+
+      await db.update("subscriptions", match.id, updatePayload, orgId);
+
+      logger.info(`Updated subscription ${match.id} for EmpCloud org ${body.organization_id}`, {
+        status: updatePayload.status,
+        quantity: updatePayload.quantity,
+      });
 
       res.json({ success: true, acknowledged: true, subscription_id: match.id });
       return;
