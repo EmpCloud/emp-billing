@@ -8,6 +8,7 @@ import { logger } from "../../utils/logger";
 import { nextInvoiceNumber } from "../../utils/number-generator";
 import { BadRequestError } from "../../utils/AppError";
 import { emit } from "../../events/index";
+import { ensureEmpCloudBillingOrg } from "../../services/auth/empcloud-bootstrap.service";
 
 const router = Router();
 
@@ -134,19 +135,9 @@ router.post("/", asyncHandler(async (req, res) => {
 
   const db = await getDB();
 
-  // Use a default billing org — the first org in the system (billing is single-tenant typically)
-  // or we could derive it. For now, find the first active org.
-  const defaultOrg = await db.findOne<{ id: string }>("organizations", { is_active: true });
-  const orgId = defaultOrg?.id;
-  if (!orgId) {
-    logger.warn("No active billing organization found — cannot process EmpCloud webhook");
-    res.json({ success: true, acknowledged: true, warning: "No billing org configured" });
-    return;
-  }
-
-  // Find a system user to attribute records to (needed for FK constraints)
-  const systemUser = await db.findOne<{ id: string }>("users", { org_id: orgId, role: "owner" });
-  const createdBy = systemUser?.id || "system";
+  const bootstrap = await ensureEmpCloudBillingOrg();
+  const orgId = bootstrap.orgId;
+  const createdBy = bootstrap.userId;
 
   switch (eventType) {
     case "subscription.created": {
