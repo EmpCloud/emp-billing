@@ -4,6 +4,7 @@ import { asyncHandler } from "../middleware/error.middleware";
 import { v4 as uuid } from "uuid";
 import dayjs from "dayjs";
 import { getDB } from "../../db/adapters/index";
+import { KnexAdapter } from "../../db/adapters/knex.adapter";
 import { logger } from "../../utils/logger";
 import { nextInvoiceNumber } from "../../utils/number-generator";
 import { BadRequestError } from "../../utils/AppError";
@@ -146,12 +147,30 @@ router.post("/", asyncHandler(async (req, res) => {
       // Find or create client for this EmpCloud org
       const clientId = await findOrCreateClient(orgId, body.organization_id, body.module_slug);
 
-      // Check if subscription already exists (idempotency)
-      const existingSub = await db.findOne<{ id: string }>("subscriptions", {
-        org_id: orgId,
-        client_id: clientId,
-        metadata: JSON.stringify({ empcloud_subscription_id: body.subscription_id, module_slug: body.module_slug }),
-      });
+      // Idempotency check. Two concurrent webhooks for the same EmpCloud
+      // subscription must converge on a single billing subscription/invoice,
+      // otherwise the user sees duplicate invoices for one purchase
+      // (which surfaced on prod for orgs 18 and 19 as INV-…80 + INV-…81
+      // off a single subscribe click).
+      //
+      // The original `db.findOne` lookup did a literal-string compare on
+      // the metadata column with a JSON string built from a SUBSET of the
+      // keys we actually insert: insert has
+      //   { empcloud_subscription_id, empcloud_org_id, module_slug }
+      // lookup tried with
+      //   { empcloud_subscription_id, module_slug }
+      // The two strings never matched, so the dedupe was a no-op. Switch
+      // to JSON_EXTRACT against the empcloud_subscription_id key — that's
+      // the only field that needs to be unique per webhook, and indexing
+      // it via a generated-column index later is straightforward.
+      const knex = (db as KnexAdapter).getKnex();
+      const existingSubRow = await knex("subscriptions")
+        .where({ org_id: orgId, client_id: clientId })
+        .whereRaw("JSON_EXTRACT(metadata, '$.empcloud_subscription_id') = ?", [
+          body.subscription_id,
+        ])
+        .first();
+      const existingSub = existingSubRow ? { id: existingSubRow.id as string } : null;
 
       if (existingSub) {
         logger.info(`Subscription already exists for EmpCloud sub ${body.subscription_id}, skipping`);
