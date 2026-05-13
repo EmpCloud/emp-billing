@@ -256,9 +256,9 @@ router.post("/", asyncHandler(async (req, res) => {
           orgId,
           clientId,
           invoiceNumber,
-          status: "draft",
+          status: "sent",
           issueDate: dayjs(now).format("YYYY-MM-DD"),
-          dueDate: dayjs(now).add(30, "day").format("YYYY-MM-DD"),
+          dueDate: dayjs(now).format("YYYY-MM-DD"),
           subtotal: lineTotal,
           discountAmount: 0,
           taxAmount: 0,
@@ -266,10 +266,11 @@ router.post("/", asyncHandler(async (req, res) => {
           amountPaid: 0,
           amountDue: lineTotal,
           currency: body.currency || "INR",
-          notes: `Auto-generated invoice for ${body.module_name || body.module_slug} subscription (EmpCloud org ${body.organization_id})`,
+          notes: `Prepaid first-period invoice for ${body.module_name || body.module_slug} (EmpCloud org ${body.organization_id})`,
           createdBy,
           createdAt: now,
           updatedAt: now,
+          sentAt: now,
         });
 
         await db.create("invoice_items", {
@@ -333,7 +334,7 @@ router.post("/", asyncHandler(async (req, res) => {
 
     case "subscription.updated": {
       // Find existing subscription by empcloud metadata
-      const subs = await db.findMany<{ id: string; metadata: string }>("subscriptions", {
+      const subs = await db.findMany<{ id: string; status: string; plan_id: string; client_id: string; metadata: string }>("subscriptions", {
         where: { org_id: orgId },
       });
 
@@ -385,6 +386,82 @@ router.post("/", asyncHandler(async (req, res) => {
         status: updatePayload.status,
         quantity: updatePayload.quantity,
       });
+
+      // PREPAID first-period invoice on trialing → active transition.
+      // Fires for BOTH natural day-14 expiry AND early upgrade — the
+      // customer is starting their first paid period, so we bill upfront
+      // for [period_start, period_end] at the current rate. Trial days
+      // before this point stay free (the trial was the trial). due_date
+      // matches issue_date so payment is expected on day of issue.
+      const transitioningToActive = match.status === "trialing" && !isTrial && periodStartUpdate && periodEndUpdate;
+      if (transitioningToActive) {
+        const lineTotal = (body.price_per_seat || 0) * (body.total_seats || 1);
+
+        if (lineTotal > 0) {
+          const invoiceId = uuid();
+          const invoiceNumber = await nextInvoiceNumber(orgId);
+
+          await db.create("invoices", {
+            id: invoiceId,
+            orgId,
+            clientId: match.client_id,
+            invoiceNumber,
+            status: "sent",
+            issueDate: dayjs(now).format("YYYY-MM-DD"),
+            dueDate: dayjs(now).format("YYYY-MM-DD"),
+            subtotal: lineTotal,
+            discountAmount: 0,
+            taxAmount: 0,
+            total: lineTotal,
+            amountPaid: 0,
+            amountDue: lineTotal,
+            currency: body.currency || "INR",
+            notes: `First billing period for ${body.module_name || body.module_slug} after trial — ${body.total_seats} seats × ${body.price_per_seat}`,
+            createdBy: match.client_id,
+            createdAt: now,
+            updatedAt: now,
+            sentAt: now,
+          });
+
+          await db.create("invoice_items", {
+            id: uuid(),
+            invoiceId,
+            orgId,
+            name: `${body.module_name || body.module_slug} — ${body.plan_tier}`,
+            description: `${body.total_seats} seats × ${body.price_per_seat} (prepaid: ${dayjs(periodStartUpdate).format("DD MMM YYYY")} → ${dayjs(periodEndUpdate).format("DD MMM YYYY")})`,
+            quantity: body.total_seats || 1,
+            rate: body.price_per_seat || 0,
+            amount: lineTotal,
+            sortOrder: 0,
+          });
+
+          const invoiceClient = await db.findById<{ email: string; portalEmail?: string }>(
+            "clients",
+            match.client_id,
+            orgId,
+          );
+
+          emit("invoice.created", {
+            orgId,
+            invoiceId,
+            invoice: {
+              id: invoiceId,
+              clientId: match.client_id,
+              clientEmail: invoiceClient?.portalEmail ?? invoiceClient?.email,
+              invoiceNumber,
+              total: lineTotal,
+              currency: body.currency || "INR",
+              source: "trial-converted-to-active",
+            } as unknown as Record<string, unknown>,
+          });
+
+          logger.info(`Prepaid first-period invoice ${invoiceNumber} generated for subscription ${match.id} on trialing→active transition`, {
+            total: lineTotal,
+            periodStart: dayjs(periodStartUpdate).format("YYYY-MM-DD"),
+            periodEnd: dayjs(periodEndUpdate).format("YYYY-MM-DD"),
+          });
+        }
+      }
 
       res.json({ success: true, acknowledged: true, subscription_id: match.id });
       return;

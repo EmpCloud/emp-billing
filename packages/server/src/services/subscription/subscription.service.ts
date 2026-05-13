@@ -734,10 +734,11 @@ export async function renewSubscription(subscriptionId: string): Promise<{ invoi
     total = Math.max(0, total - discountAmount);
   }
 
-  // Create invoice for the plan price x quantity
+  // Create invoice for the plan price x quantity.
+  // PREPAID: due_date = issue_date, payment expected on issue.
   const invoiceNumber = await nextInvoiceNumber(subscription.orgId);
   const invoiceId = uuid();
-  const dueDate = dayjs(now).add(7, "day").format("YYYY-MM-DD");
+  const issueDate = dayjs(now).format("YYYY-MM-DD");
 
   await db.create("invoices", {
     id: invoiceId,
@@ -745,8 +746,8 @@ export async function renewSubscription(subscriptionId: string): Promise<{ invoi
     clientId: subscription.clientId,
     invoiceNumber,
     status: InvoiceStatus.SENT,
-    issueDate: dayjs(now).format("YYYY-MM-DD"),
-    dueDate,
+    issueDate,
+    dueDate: issueDate,
     currency: plan.currency,
     exchangeRate: 1,
     subtotal: plan.price * subscription.quantity,
