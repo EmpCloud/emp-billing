@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"const fs=require('fs'),path=require('path');function copy(s,d){fs.mkdirSync(d,{recursive:true});for(const f of fs.readdirSync(s,{withFileTypes:true})){const sp=path.join(s,f.name),dp=path.join(d,f.name);f.isDirectory()?copy(sp,dp):fs.copyFileSync(sp,dp);}}copy('src/templates','dist/templates');\"",
     "start": "node dist/index.js",
     "test": "vitest run",
     "db:migrate": "tsx src/db/migrate.ts",
