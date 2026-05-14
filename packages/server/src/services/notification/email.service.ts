@@ -235,7 +235,7 @@ export async function sendInvoiceEmail(
   const html = template({
     org,
     invoice,
-    portalUrl: config.corsOrigin,
+    portalUrl: config.portalUrl,
     invoiceId,
     formatMoney,
     formatDate,
@@ -281,7 +281,7 @@ export async function sendPaymentReceiptEmail(
     org,
     payment,
     invoice,
-    portalUrl: config.corsOrigin,
+    portalUrl: config.portalUrl,
   });
 
   await sendEmail(
@@ -316,7 +316,7 @@ export async function sendQuoteEmail(
   const html = template({
     org,
     quote,
-    portalUrl: config.corsOrigin,
+    portalUrl: config.portalUrl,
     quoteId,
   });
 
@@ -359,7 +359,7 @@ export async function sendPaymentReminderEmail(
     invoice,
     invoiceId,
     daysOverdue,
-    portalUrl: config.corsOrigin,
+    portalUrl: config.portalUrl,
   });
 
   await sendEmail(
