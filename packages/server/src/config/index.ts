@@ -153,6 +153,10 @@ export const config = {
   // EmpCloud integration
   empcloud: {
     apiKey: optional("EMPCLOUD_API_KEY", ""),
+    // Base URL of the EmpCloud app. EmpCloud-provisioned invoices link here
+    // (/billing) instead of the standalone billing portal — EmpCloud org
+    // admins sign in to app.empcloud.com, not the billing portal.
+    appUrl: optional("EMPCLOUD_APP_URL", "https://app.empcloud.com").replace(/\/+$/, ""),
   },
 
   // Bcrypt

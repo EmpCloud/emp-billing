@@ -210,6 +210,42 @@ export async function sendEmail(
   }
 }
 
+// ── Invoice link resolution ─────────────────────────────────────────────────
+
+function safeJsonParse(s: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(s) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+// Resolve the "View Invoice" / "Pay Now" link for an invoice email.
+// EmpCloud-provisioned clients (those carrying empcloud_org_id in
+// custom_fields) get an app.empcloud.com/billing link — their admins sign in
+// to EmpCloud, not the standalone billing portal, so a /portal/... link is a
+// dead end (404) for them. Everyone else gets the billing portal invoice page.
+async function resolveInvoiceUrl(
+  db: Awaited<ReturnType<typeof getDB>>,
+  orgId: string,
+  invoice: Record<string, unknown>,
+  invoiceId: string,
+): Promise<string> {
+  const clientId = String(invoice.clientId ?? invoice.client_id ?? "");
+  if (clientId) {
+    const client = (await db.findOne("clients", { id: clientId, org_id: orgId })) as
+      | Record<string, unknown>
+      | null;
+    const cf = client?.customFields ?? client?.custom_fields;
+    const custom =
+      typeof cf === "string" ? safeJsonParse(cf) : (cf as Record<string, unknown> | null | undefined);
+    if (custom && custom.empcloud_org_id != null && config.empcloud.appUrl) {
+      return `${config.empcloud.appUrl}/billing`;
+    }
+  }
+  return `${config.portalUrl}/portal/invoices/${invoiceId}`;
+}
+
 // ── Invoice email ───────────────────────────────────────────────────────────
 
 export async function sendInvoiceEmail(
@@ -231,11 +267,14 @@ export async function sendInvoiceEmail(
     return;
   }
 
+  const invoiceUrl = await resolveInvoiceUrl(db, orgId, invoice as Record<string, unknown>, invoiceId);
+
   const template = loadTemplate("email-invoice");
   const html = template({
     org,
     invoice,
     portalUrl: config.portalUrl,
+    invoiceUrl,
     invoiceId,
     formatMoney,
     formatDate,
@@ -353,6 +392,8 @@ export async function sendPaymentReminderEmail(
   const now = new Date();
   const daysOverdue = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
 
+  const invoiceUrl = await resolveInvoiceUrl(db, orgId, invoice as Record<string, unknown>, invoiceId);
+
   const template = loadTemplate("email-payment-reminder");
   const html = template({
     org,
@@ -360,6 +401,7 @@ export async function sendPaymentReminderEmail(
     invoiceId,
     daysOverdue,
     portalUrl: config.portalUrl,
+    invoiceUrl,
   });
 
   await sendEmail(
