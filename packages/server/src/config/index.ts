@@ -11,12 +11,35 @@ function optional(key: string, fallback: string): string {
   return process.env[key] || fallback;
 }
 
+// Resolve a single, valid public base URL for links in transactional
+// emails / SMS / WhatsApp. CORS_ORIGIN is frequently comma-separated
+// (multiple allowed origins); using it raw as a link base produces a
+// malformed "https://a.com,https://b.com/..." href that fails with
+// ERR_INVALID_REDIRECT through SendGrid's click tracker. Pick the first
+// HTTPS origin, fall back to the configured live domain, drop trailing "/".
+function resolvePortalUrl(): string {
+  const origins = String(process.env.CORS_ORIGIN || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const base =
+    origins.find((o) => o.startsWith("https://")) ||
+    origins[0] ||
+    `https://${optional("DEFAULT_DOMAIN", "billing.empcloud.com")}`;
+  return base.replace(/\/+$/, "");
+}
+
 export const config = {
   env: optional("NODE_ENV", "development"),
   port: parseInt(optional("PORT", "4001")),
 
   // CORS
   corsOrigin: optional("CORS_ORIGIN", "http://localhost:5174"),
+
+  // Single valid public base URL for links in emails / SMS / WhatsApp —
+  // derived from CORS_ORIGIN (see resolvePortalUrl above). Never use the
+  // raw corsOrigin as a link base: it may be a comma-separated list.
+  portalUrl: resolvePortalUrl(),
 
   // JWT — require real secrets in production; allow dev fallbacks otherwise
   jwt: {

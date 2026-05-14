@@ -280,7 +280,7 @@ export async function sendInvoiceWhatsApp(
     amount: formatAmount(inv.total ?? inv.total_amount),
     currency: String(inv.currency ?? "INR"),
     dueDate: formatDateShort(inv.dueDate ?? inv.due_date),
-    portalUrl: config.corsOrigin,
+    portalUrl: config.portalUrl,
   });
 }
 
@@ -357,7 +357,7 @@ export async function sendPaymentReminderWhatsApp(
     currency: String(inv.currency ?? "INR"),
     dueDate: formatDateShort(inv.dueDate ?? inv.due_date),
     daysOverdue: String(daysOverdue),
-    portalUrl: config.corsOrigin,
+    portalUrl: config.portalUrl,
   });
 }
 

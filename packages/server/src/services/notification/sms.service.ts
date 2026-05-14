@@ -180,7 +180,7 @@ export async function sendInvoiceSMS(
     amount: formatAmount(inv.total ?? inv.total_amount),
     currency: String(inv.currency ?? "INR"),
     dueDate: formatDateShort(inv.dueDate ?? inv.due_date),
-    portalUrl: config.corsOrigin,
+    portalUrl: config.portalUrl,
   });
 
   return sendSMS(phoneNumber, message);
@@ -262,7 +262,7 @@ export async function sendPaymentReminderSMS(
     currency: String(inv.currency ?? "INR"),
     dueDate: formatDateShort(inv.dueDate ?? inv.due_date),
     daysOverdue,
-    portalUrl: config.corsOrigin,
+    portalUrl: config.portalUrl,
   });
 
   return sendSMS(phoneNumber, message);
