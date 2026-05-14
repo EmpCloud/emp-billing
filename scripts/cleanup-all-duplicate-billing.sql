@@ -28,6 +28,12 @@
 -- Supersedes scripts/cleanup-org-21-duplicate-billing.sql.
 -- ============================================================================
 
+-- The emp-billing tables were created with utf8mb4_unicode_ci, but MySQL 8's
+-- session default is utf8mb4_0900_ai_ci. Without this line, comparing a column
+-- against a string literal / user variable / temp-table column throws
+-- "#1267 Illegal mix of collations". Force the session to the tables' collation.
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 START TRANSACTION;
 
 -- ── Build the loser sets ────────────────────────────────────────────────────
