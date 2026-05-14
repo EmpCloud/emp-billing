@@ -100,27 +100,51 @@ async function findOrCreateClient(
   const email = adminEmail || `org-${empcloudOrgId}@empcloud.internal`;
   const name = orgName || `EmpCloud Org #${empcloudOrgId}`;
 
-  await db.create("clients", {
-    id: clientId,
-    orgId,
-    name,
-    displayName: name,
-    email,
-    phone: null,
-    taxId: null,
-    currency: "INR",
-    paymentTerms: 30,
-    billingAddress: null,
-    shippingAddress: null,
-    tags: JSON.stringify(["empcloud", moduleSlug]),
-    customFields: JSON.stringify({ empcloud_org_id: empcloudOrgId }),
-    outstandingBalance: 0,
-    totalBilled: 0,
-    totalPaid: 0,
-    isActive: true,
-    createdAt: now,
-    updatedAt: now,
-  });
+  try {
+    await db.create("clients", {
+      id: clientId,
+      orgId,
+      name,
+      displayName: name,
+      email,
+      phone: null,
+      taxId: null,
+      currency: "INR",
+      paymentTerms: 30,
+      billingAddress: null,
+      shippingAddress: null,
+      tags: JSON.stringify(["empcloud", moduleSlug]),
+      customFields: JSON.stringify({ empcloud_org_id: empcloudOrgId }),
+      outstandingBalance: 0,
+      totalBilled: 0,
+      totalPaid: 0,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (err: any) {
+    // Race-safe: a concurrent webhook for the same EmpCloud org may have
+    // created the client first. The uq_clients_empcloud_org unique index
+    // (migration 019) makes the loser's INSERT fail with ER_DUP_ENTRY —
+    // converge on the winner's row instead of leaving an orphan client
+    // (the orphan client was what defeated the subscription dedupe before).
+    if (err?.code === "ER_DUP_ENTRY" || err?.errno === 1062) {
+      const winner = await knex("clients")
+        .where({ org_id: orgId })
+        .whereRaw("JSON_EXTRACT(custom_fields, '$.empcloud_org_id') = ?", [empcloudOrgId])
+        .first();
+      if (winner) {
+        if (adminEmail && winner.email !== adminEmail) {
+          await knex("clients")
+            .where({ id: winner.id })
+            .update({ email: adminEmail, updated_at: new Date() });
+        }
+        logger.info(`findOrCreateClient: lost create race for EmpCloud org ${empcloudOrgId}, using existing client ${winner.id}`);
+        return winner.id as string;
+      }
+    }
+    throw err;
+  }
 
   logger.info(`Auto-provisioned billing client ${clientId} for EmpCloud org ${empcloudOrgId} (email=${email})`);
   return clientId;
@@ -211,8 +235,15 @@ router.post("/", asyncHandler(async (req, res) => {
       // the only field that needs to be unique per webhook, and indexing
       // it via a generated-column index later is straightforward.
       const knex = (db as KnexAdapter).getKnex();
+      // Match on org_id + empcloud_subscription_id only — NOT client_id.
+      // findOrCreateClient is now race-safe, but historically a racing
+      // webhook could create a second client; scoping the dedupe by
+      // client_id meant each webhook only saw subscriptions under its own
+      // client, so the check never matched and both created an invoice.
+      // empcloud_subscription_id is unique per EmpCloud subscription, which
+      // is all this dedupe needs.
       const existingSubRow = await knex("subscriptions")
-        .where({ org_id: orgId, client_id: clientId })
+        .where({ org_id: orgId })
         .whereRaw("JSON_EXTRACT(metadata, '$.empcloud_subscription_id') = ?", [
           body.subscription_id,
         ])
@@ -278,32 +309,59 @@ router.post("/", asyncHandler(async (req, res) => {
       const trialEndDate = body.trial_end ? new Date(body.trial_end) : null;
       const isTrial = body.status === "trial" || (trialEndDate !== null && trialEndDate > now);
 
-      await db.create("subscriptions", {
-        id: subId,
-        orgId,
-        clientId,
-        planId: plan.id,
-        status: isTrial ? "trialing" : "active",
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-        trialStart: isTrial ? periodStart : null,
-        trialEnd: isTrial ? trialEndDate : null,
-        cancelledAt: null,
-        cancelReason: null,
-        pauseStart: null,
-        resumeDate: null,
-        nextBillingDate: dayjs(isTrial && trialEndDate ? trialEndDate : periodEnd).format("YYYY-MM-DD"),
-        quantity: body.total_seats || 1,
-        metadata: JSON.stringify({
-          empcloud_subscription_id: body.subscription_id,
-          empcloud_org_id: body.organization_id,
-          module_slug: body.module_slug,
-        }),
-        autoRenew: true,
-        createdBy,
-        createdAt: now,
-        updatedAt: now,
-      });
+      try {
+        await db.create("subscriptions", {
+          id: subId,
+          orgId,
+          clientId,
+          planId: plan.id,
+          status: isTrial ? "trialing" : "active",
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+          trialStart: isTrial ? periodStart : null,
+          trialEnd: isTrial ? trialEndDate : null,
+          cancelledAt: null,
+          cancelReason: null,
+          pauseStart: null,
+          resumeDate: null,
+          nextBillingDate: dayjs(isTrial && trialEndDate ? trialEndDate : periodEnd).format("YYYY-MM-DD"),
+          quantity: body.total_seats || 1,
+          metadata: JSON.stringify({
+            empcloud_subscription_id: body.subscription_id,
+            empcloud_org_id: body.organization_id,
+            module_slug: body.module_slug,
+          }),
+          autoRenew: true,
+          createdBy,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } catch (err: any) {
+        // Final race guard: two webhooks for the same EmpCloud subscription
+        // can both clear the idempotency check above before either commits.
+        // The uq_subscriptions_empcloud_sub unique index (migration 019)
+        // lets the DB pick a winner; the loser hits ER_DUP_ENTRY here. Treat
+        // it as an idempotent hit — converge on the winner's row and return
+        // WITHOUT creating a (duplicate) invoice.
+        if (err?.code === "ER_DUP_ENTRY" || err?.errno === 1062) {
+          const winnerRow = await knex("subscriptions")
+            .where({ org_id: orgId })
+            .whereRaw("JSON_EXTRACT(metadata, '$.empcloud_subscription_id') = ?", [body.subscription_id])
+            .first();
+          if (winnerRow) {
+            logger.info(`Lost subscription-create race for EmpCloud sub ${body.subscription_id}, using ${winnerRow.id}`);
+            res.json({
+              success: true,
+              acknowledged: true,
+              subscription_id: winnerRow.id as string,
+              client_id: (winnerRow.client_id as string) ?? clientId,
+              plan_id: (winnerRow.plan_id as string) ?? plan.id,
+            });
+            return;
+          }
+        }
+        throw err;
+      }
 
       let invoiceId: string | null = null;
       let invoiceNumber: string | null = null;
