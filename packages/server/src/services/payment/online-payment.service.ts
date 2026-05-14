@@ -28,7 +28,14 @@ export function listAvailableGateways(): Array<{ name: string; displayName: stri
 export async function createPaymentOrder(
   orgId: string,
   invoiceId: string,
-  gatewayName: string
+  gatewayName: string,
+  // Optional return URL the caller wants the gateway to redirect to
+  // after a successful (or cancelled) payment. The portal flow leaves
+  // this empty and falls back to billing.empcloud.com/portal/…;
+  // cross-app callers like EmpCloud's BillingPage pass their own page
+  // URL so users land back on app.empcloud.com instead of the billing
+  // portal.
+  returnUrl?: string,
 ) {
   const db = await getDB();
 
@@ -58,8 +65,16 @@ export async function createPaymentOrder(
   const origins = String(config.corsOrigin || "").split(",").map((s) => s.trim());
   const baseOrigin = origins.find((o) => o.startsWith("https://")) || origins[0] || "";
   const portalBaseUrl = `${baseOrigin}/portal`;
-  const successUrl = process.env.STRIPE_SUCCESS_URL || `${portalBaseUrl}/invoices?payment=success`;
-  const cancelUrl = process.env.STRIPE_CANCEL_URL || `${portalBaseUrl}/invoices?payment=cancelled`;
+  // Honour the caller's return URL when provided. Add a payment status
+  // query param so the destination page can show a success/cancel toast
+  // without parsing the Stripe session id. If no returnUrl, fall back
+  // to the billing portal default.
+  const successUrl = returnUrl
+    ? `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}payment=success`
+    : (process.env.STRIPE_SUCCESS_URL || `${portalBaseUrl}/invoices?payment=success`);
+  const cancelUrl = returnUrl
+    ? `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}payment=cancelled`
+    : (process.env.STRIPE_CANCEL_URL || `${portalBaseUrl}/invoices?payment=cancelled`);
 
   const result = await gateway.createOrder({
     amount: invoice.amountDue,

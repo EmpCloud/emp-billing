@@ -7,13 +7,14 @@ export async function listGateways(_req: Request, res: Response): Promise<void> 
 }
 
 export async function createOrder(req: Request, res: Response): Promise<void> {
-  const { invoiceId, gateway } = req.body;
+  const { invoiceId, gateway, returnUrl } = req.body;
   // orgId comes from portal auth or regular user auth
   const orgId = req.portalClient?.orgId || req.user?.orgId;
   const result = await onlinePaymentService.createPaymentOrder(
     orgId!,
     invoiceId,
-    gateway
+    gateway,
+    typeof returnUrl === "string" ? returnUrl : undefined,
   );
   res.json({ success: true, data: result });
 }
