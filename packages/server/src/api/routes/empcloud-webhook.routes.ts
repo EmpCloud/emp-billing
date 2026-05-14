@@ -458,7 +458,7 @@ router.post("/", asyncHandler(async (req, res) => {
 
     case "subscription.updated": {
       // Find existing subscription by empcloud metadata
-      const subs = await db.findMany<{ id: string; status: string; plan_id: string; client_id: string; metadata: string }>("subscriptions", {
+      const subs = await db.findMany<{ id: string; status: string; plan_id: string; client_id: string; metadata: string; quantity: number }>("subscriptions", {
         where: { org_id: orgId },
       });
 
@@ -584,6 +584,120 @@ router.post("/", asyncHandler(async (req, res) => {
             periodStart: dayjs(periodStartUpdate).format("YYYY-MM-DD"),
             periodEnd: dayjs(periodEndUpdate).format("YYYY-MM-DD"),
           });
+        }
+      }
+
+      // ── Seat-change billing on an already-active subscription ────────────
+      // A seat change on a sub that was already active (NOT the trial→active
+      // path above) reconciles the current invoice:
+      //   * current invoice still UNPAID → amend it in place to the new count
+      //   * current invoice already PAID → issue a NEW invoice for just the
+      //     added seats (the delta)
+      // A downgrade only amends an unpaid invoice; a paid invoice is left
+      // alone (no auto-credit / no mid-period refund).
+      // Invoices aren't FK-linked to subscriptions, so the current invoice is
+      // matched on client + the module label carried in the invoice notes.
+      const oldQty = Number(match.quantity) || 1;
+      const newQty = body.total_seats || 1;
+      if (match.status === "active" && !transitioningToActive && !isTrial && newQty !== oldQty) {
+        const knex = (db as KnexAdapter).getKnex();
+        const pricePerSeat = body.price_per_seat || 0;
+        const moduleLabel = body.module_name || body.module_slug;
+
+        const currentInvoice = await knex("invoices")
+          .where({ org_id: orgId, client_id: match.client_id })
+          .whereNotIn("status", ["void", "written_off"])
+          .where("notes", "like", `%${moduleLabel}%`)
+          .orderBy("created_at", "desc")
+          .first();
+
+        const isUnpaid =
+          currentInvoice &&
+          Number(currentInvoice.amount_paid) === 0 &&
+          currentInvoice.status !== "paid";
+
+        if (currentInvoice && isUnpaid) {
+          // UNPAID → amend the invoice + its line item to the new seat count.
+          const fullTotal = newQty * pricePerSeat;
+          await knex("invoices").where({ id: currentInvoice.id }).update({
+            subtotal: fullTotal,
+            total: fullTotal,
+            amount_due: fullTotal,
+            notes: `${moduleLabel} (EmpCloud org ${body.organization_id}) — ${newQty} seats x ${pricePerSeat} (updated from ${oldQty})`,
+            updated_at: now,
+          });
+          await knex("invoice_items")
+            .where({ invoice_id: currentInvoice.id })
+            .update({ quantity: newQty, rate: pricePerSeat, amount: fullTotal });
+          logger.info(
+            `Amended unpaid invoice ${currentInvoice.invoice_number} for subscription ${match.id}: ${oldQty} to ${newQty} seats`,
+          );
+        } else if (newQty > oldQty) {
+          // PAID (or no open invoice) AND seats went up → bill the delta only.
+          const deltaQty = newQty - oldQty;
+          const deltaTotal = deltaQty * pricePerSeat;
+          if (deltaTotal > 0) {
+            const upgradeInvoiceId = uuid();
+            const upgradeInvoiceNumber = await nextInvoiceNumber(orgId);
+            await db.create("invoices", {
+              id: upgradeInvoiceId,
+              orgId,
+              clientId: match.client_id,
+              invoiceNumber: upgradeInvoiceNumber,
+              status: "sent",
+              issueDate: dayjs(now).format("YYYY-MM-DD"),
+              dueDate: dayjs(now).format("YYYY-MM-DD"),
+              subtotal: deltaTotal,
+              discountAmount: 0,
+              taxAmount: 0,
+              total: deltaTotal,
+              amountPaid: 0,
+              amountDue: deltaTotal,
+              currency: body.currency || "INR",
+              notes: `Seat upgrade for ${moduleLabel} (EmpCloud org ${body.organization_id}) — ${deltaQty} additional seats`,
+              createdBy,
+              createdAt: now,
+              updatedAt: now,
+              sentAt: now,
+            });
+            await db.create("invoice_items", {
+              id: uuid(),
+              invoiceId: upgradeInvoiceId,
+              orgId,
+              name: `${moduleLabel} — ${body.plan_tier} (seat upgrade)`,
+              description: `${deltaQty} additional seats x ${pricePerSeat} (${oldQty} to ${newQty})`,
+              quantity: deltaQty,
+              rate: pricePerSeat,
+              amount: deltaTotal,
+              sortOrder: 0,
+            });
+            const upgradeClient = await db.findById<{ email: string; portalEmail?: string }>(
+              "clients",
+              match.client_id,
+              orgId,
+            );
+            emit("invoice.created", {
+              orgId,
+              invoiceId: upgradeInvoiceId,
+              invoice: {
+                id: upgradeInvoiceId,
+                clientId: match.client_id,
+                clientEmail: upgradeClient?.portalEmail ?? upgradeClient?.email,
+                invoiceNumber: upgradeInvoiceNumber,
+                total: deltaTotal,
+                currency: body.currency || "INR",
+                source: "seat-upgrade",
+              } as unknown as Record<string, unknown>,
+            });
+            logger.info(
+              `Seat-upgrade invoice ${upgradeInvoiceNumber} generated for subscription ${match.id}: +${deltaQty} seats x ${pricePerSeat}`,
+            );
+          }
+        } else {
+          // Downgrade with a paid/absent open invoice — no auto-credit.
+          logger.info(
+            `Subscription ${match.id} downgraded ${oldQty} to ${newQty} seats; open invoice paid/absent, no credit issued`,
+          );
         }
       }
 
