@@ -1028,6 +1028,71 @@ function GatewaysTab() {
           </span>
         </div>
       </section>
+
+      {/* PayPal */}
+      <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-sky-50 flex items-center justify-center">
+              <CreditCard className="h-5 w-5 text-sky-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-800">PayPal</h2>
+              <p className="text-sm text-gray-500">Accept PayPal balance and cards worldwide</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-amber-50 border border-amber-100 p-4 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+          <div className="text-sm text-amber-800">
+            <p className="font-medium mb-1">Configured via environment variables</p>
+            <p className="text-amber-700">
+              PayPal credentials are managed through server environment variables for security.
+              Set the following in your <code className="bg-amber-100 px-1 py-0.5 rounded text-xs font-mono">.env</code> file:
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-left py-2.5 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Environment Variable</th>
+                <th className="text-left py-2.5 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-gray-100">
+                <td className="py-2.5 px-4 font-mono text-xs text-gray-900 bg-gray-50">PAYPAL_CLIENT_ID</td>
+                <td className="py-2.5 px-4 text-gray-600">Your PayPal REST app Client ID</td>
+              </tr>
+              <tr className="border-b border-gray-100">
+                <td className="py-2.5 px-4 font-mono text-xs text-gray-900 bg-gray-50">PAYPAL_CLIENT_SECRET</td>
+                <td className="py-2.5 px-4 text-gray-600">Your PayPal REST app Client Secret</td>
+              </tr>
+              <tr className="border-b border-gray-100">
+                <td className="py-2.5 px-4 font-mono text-xs text-gray-900 bg-gray-50">PAYPAL_WEBHOOK_ID</td>
+                <td className="py-2.5 px-4 text-gray-600">Webhook ID for verifying PayPal webhook signatures</td>
+              </tr>
+              <tr>
+                <td className="py-2.5 px-4 font-mono text-xs text-gray-900 bg-gray-50">PAYPAL_SANDBOX</td>
+                <td className="py-2.5 px-4 text-gray-600">Set to <code className="text-xs font-mono bg-gray-100 px-1 rounded">true</code> for sandbox, <code className="text-xs font-mono bg-gray-100 px-1 rounded">false</code> for live</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm">
+          <Info className="h-4 w-4 text-gray-400" />
+          <span className="text-gray-500">
+            Get your API keys from{" "}
+            <a href="https://developer.paypal.com/dashboard/" target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:text-sky-700 underline">
+              PayPal Developer Dashboard
+            </a>
+          </span>
+        </div>
+      </section>
     </div>
   );
 }
