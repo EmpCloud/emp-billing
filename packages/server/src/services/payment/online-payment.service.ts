@@ -135,11 +135,25 @@ export async function verifyPayment(
           ? PaymentMethod.GATEWAY_PAYPAL
           : PaymentMethod.OTHER;
 
+  // A gateway may settle in a different currency than the invoice — PayPal
+  // can't process INR, so it converts INR invoices to USD at checkout and the
+  // capture comes back in USD. recordGatewayPayment works in the invoice's
+  // currency, so recording the raw gateway amount would mark a 1,000 INR
+  // invoice as 10.44 INR paid (partially_paid). When the settled currency
+  // differs from the invoice currency, record the invoice's own outstanding
+  // amount: the buyer paid the invoice in full, just denominated in the
+  // gateway's currency.
+  const amountToRecord =
+    verification.currency &&
+    verification.currency.toUpperCase() !== invoice.currency.toUpperCase()
+      ? invoice.amountDue
+      : verification.amount;
+
   const payment = await recordGatewayPayment(
     db,
     orgId,
     invoice,
-    verification.amount,
+    amountToRecord,
     paymentMethod,
     verification.gatewayTransactionId
   );
@@ -186,20 +200,32 @@ export async function handleGatewayWebhook(
             ? PaymentMethod.GATEWAY_STRIPE
             : gatewayName === "razorpay"
               ? PaymentMethod.GATEWAY_RAZORPAY
-              : PaymentMethod.OTHER;
+              : gatewayName === "paypal"
+                ? PaymentMethod.GATEWAY_PAYPAL
+                : PaymentMethod.OTHER;
+
+        // When the gateway settled in a different currency than the invoice
+        // (e.g. PayPal converts INR invoices to USD), record the invoice's
+        // own outstanding amount rather than the raw gateway amount — see
+        // verifyPayment for the full rationale.
+        const amountToRecord =
+          result.currency &&
+          result.currency.toUpperCase() !== invoice.currency.toUpperCase()
+            ? invoice.amountDue
+            : result.amount;
 
         await recordGatewayPayment(
           db,
           orgId,
           invoice,
-          result.amount,
+          amountToRecord,
           paymentMethod,
           result.gatewayTransactionId
         );
 
         logger.info(`Webhook payment recorded for invoice ${invoice.invoiceNumber}`, {
           invoiceId,
-          amount: result.amount,
+          amount: amountToRecord,
         });
       }
     } catch (err) {
