@@ -11,12 +11,23 @@ function optional(key: string, fallback: string): string {
   return process.env[key] || fallback;
 }
 
+// A base URL used as a link href MUST carry a scheme. A scheme-less value
+// like "app.empcloud.com/billing" is treated as a *relative* path by
+// browsers and mail clients — in testing it resolved against the mail
+// viewer's own domain ("temp-mail.org/en/view/app.empcloud.com/billing").
+// Also strips any trailing slash.
+function ensureScheme(url: string): string {
+  const v = (url || "").trim().replace(/\/+$/, "");
+  if (!v) return v;
+  return /^https?:\/\//i.test(v) ? v : `https://${v}`;
+}
+
 // Resolve a single, valid public base URL for links in transactional
 // emails / SMS / WhatsApp. CORS_ORIGIN is frequently comma-separated
 // (multiple allowed origins); using it raw as a link base produces a
 // malformed "https://a.com,https://b.com/..." href that fails with
 // ERR_INVALID_REDIRECT through SendGrid's click tracker. Pick the first
-// HTTPS origin, fall back to the configured live domain, drop trailing "/".
+// HTTPS origin, fall back to the configured live domain.
 function resolvePortalUrl(): string {
   const origins = String(process.env.CORS_ORIGIN || "")
     .split(",")
@@ -26,7 +37,7 @@ function resolvePortalUrl(): string {
     origins.find((o) => o.startsWith("https://")) ||
     origins[0] ||
     `https://${optional("DEFAULT_DOMAIN", "billing.empcloud.com")}`;
-  return base.replace(/\/+$/, "");
+  return ensureScheme(base);
 }
 
 export const config = {
@@ -156,7 +167,7 @@ export const config = {
     // Base URL of the EmpCloud app. EmpCloud-provisioned invoices link here
     // (/billing) instead of the standalone billing portal — EmpCloud org
     // admins sign in to app.empcloud.com, not the billing portal.
-    appUrl: optional("EMPCLOUD_APP_URL", "https://app.empcloud.com").replace(/\/+$/, ""),
+    appUrl: ensureScheme(optional("EMPCLOUD_APP_URL", "https://app.empcloud.com")),
   },
 
   // Bcrypt
