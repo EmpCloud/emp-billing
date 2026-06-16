@@ -298,8 +298,8 @@ router.post("/", asyncHandler(async (req, res) => {
         // Sub creation is idempotent -- no double subscription.
         const existingFull = await db.findById<{
           id: string;
-          client_id: string;
-          plan_id: string;
+          clientId: string;
+          planId: string;
           status: string;
           quantity: number;
         }>("subscriptions", existingSub.id);
@@ -317,11 +317,11 @@ router.post("/", asyncHandler(async (req, res) => {
           ? dayjs(body.period_start).format("YYYY-MM-DD")
           : null;
         const existingInvoice =
-          existingFull?.plan_id && periodStartIdemIso
+          existingFull?.planId && periodStartIdemIso
             ? await knex("invoices")
                 .where({
                   org_id: orgId,
-                  client_id: existingFull.client_id,
+                  client_id: existingFull.clientId,
                   issue_date: periodStartIdemIso,
                 })
                 .whereRaw("notes LIKE ?", [`%${body.module_slug}%`])
@@ -329,7 +329,7 @@ router.post("/", asyncHandler(async (req, res) => {
             : await knex("invoices")
                 .where({
                   org_id: orgId,
-                  client_id: existingFull?.client_id ?? clientId,
+                  client_id: existingFull?.clientId ?? clientId,
                 })
                 .whereRaw("notes LIKE ?", [`%${body.module_slug}%`])
                 .first();
@@ -352,7 +352,7 @@ router.post("/", asyncHandler(async (req, res) => {
             await db.create("invoices", {
               id: reissuedInvoiceId,
               orgId,
-              clientId: existingFull.client_id,
+              clientId: existingFull.clientId,
               invoiceNumber: reissuedInvoiceNumber,
               status: "sent",
               issueDate: dayjs(now).format("YYYY-MM-DD"),
@@ -365,7 +365,7 @@ router.post("/", asyncHandler(async (req, res) => {
               amountDue: lineTotalIdem,
               currency: body.currency || "INR",
               notes: `Prepaid period invoice (reissued) for ${body.module_name || body.module_slug} (EmpCloud org ${body.organization_id})`,
-              createdBy: existingFull.client_id,
+              createdBy: existingFull.clientId,
               createdAt: now,
               updatedAt: now,
               sentAt: now,
@@ -395,8 +395,8 @@ router.post("/", asyncHandler(async (req, res) => {
           success: true,
           acknowledged: true,
           subscription_id: existingSub.id,
-          client_id: existingFull?.client_id ?? clientId,
-          plan_id: existingFull?.plan_id ?? null,
+          client_id: existingFull?.clientId ?? clientId,
+          plan_id: existingFull?.planId ?? null,
           invoice_id: reissuedInvoiceId,
           invoice_number: reissuedInvoiceNumber,
         });
@@ -603,7 +603,7 @@ router.post("/", asyncHandler(async (req, res) => {
 
     case "subscription.updated": {
       // Find existing subscription by empcloud metadata
-      const subs = await db.findMany<{ id: string; status: string; plan_id: string; client_id: string; metadata: string; quantity: number }>("subscriptions", {
+      const subs = await db.findMany<{ id: string; status: string; planId: string; clientId: string; metadata: string; quantity: number; currentPeriodStart: string | Date | null; currentPeriodEnd: string | Date | null }>("subscriptions", {
         where: { org_id: orgId },
       });
 
@@ -655,11 +655,11 @@ router.post("/", asyncHandler(async (req, res) => {
       // The adjustment is the per-day delta × days remaining in the
       // cycle. Names are deliberately distinct from the existing
       // oldQty/newQty further down so the two blocks don't collide.
-      const priorQty = Number((match as any).quantity || 1);
-      const priorPlanRow = match.plan_id
+      const priorQty = Number(match.quantity || 1);
+      const priorPlanRow = match.planId
         ? await db.findById<{ price: number; currency?: string }>(
             "plans",
-            match.plan_id,
+            match.planId,
           )
         : null;
       const priorPlanPrice = priorPlanRow ? Number(priorPlanRow.price) : 0;
@@ -684,12 +684,12 @@ router.post("/", asyncHandler(async (req, res) => {
       const sentPriceField =
         body.effective_price_per_seat ?? body.price_per_seat;
       let newPlanPrice = priorPlanPrice;
-      if (sentPriceField !== undefined && sentPriceField !== null && match.plan_id) {
+      if (sentPriceField !== undefined && sentPriceField !== null && match.planId) {
         const candidateRate = Number(sentPriceField);
         if (Number.isFinite(candidateRate) && candidateRate >= 0) {
           await db.update(
             "plans",
-            match.plan_id,
+            match.planId,
             { price: candidateRate, updatedAt: now },
             orgId,
           );
@@ -718,8 +718,8 @@ router.post("/", asyncHandler(async (req, res) => {
       const nextQty = Number(updatePayload.quantity || priorQty);
       const transitioningToCancelled =
         body.status === "cancelled" && !isTrial;
-      const periodStartIso = (match as any).current_period_start;
-      const periodEndIso = (match as any).current_period_end;
+      const periodStartIso = match.currentPeriodStart;
+      const periodEndIso = match.currentPeriodEnd;
       const periodStart = periodStartIso ? new Date(periodStartIso) : null;
       const periodEnd = periodEndIso ? new Date(periodEndIso) : null;
       const totalDays = periodStart && periodEnd
@@ -745,7 +745,7 @@ router.post("/", asyncHandler(async (req, res) => {
       const prorationIdemKey = eligibleForProration
         ? prorationKey("mid-cycle", {
             subscription_id: match.id,
-            period_start: periodStartIso || "",
+            period_start: periodStart ? dayjs(periodStart).format("YYYY-MM-DD") : "",
             old_price: priorPlanPrice,
             new_price: newPlanPrice,
             old_qty: priorQty,
@@ -762,7 +762,7 @@ router.post("/", asyncHandler(async (req, res) => {
           await db.create("invoices", {
             id: invoiceId,
             orgId,
-            clientId: match.client_id,
+            clientId: match.clientId,
             invoiceNumber,
             status: "sent",
             issueDate: dayjs(now).format("YYYY-MM-DD"),
@@ -775,7 +775,7 @@ router.post("/", asyncHandler(async (req, res) => {
             amountDue: rawAdjustment,
             currency: body.currency || "INR",
             notes: `Mid-cycle proration for ${body.module_name || body.module_slug} — ${daysRemaining} of ${totalDays} days remaining at new rate`,
-            createdBy: match.client_id,
+            createdBy: match.clientId,
             createdAt: now,
             updatedAt: now,
             sentAt: now,
@@ -799,7 +799,7 @@ router.post("/", asyncHandler(async (req, res) => {
           // ER_DUP_ENTRY from the unique idempotency-key index → benign
           // duplicate webhook delivery, the original proration is already
           // in the DB. Swallow + log; everything else rethrows.
-          if ((err as any)?.code === "ER_DUP_ENTRY") {
+          if ((err as any)?.code === "ER_DUP_ENTRY" || (err as any)?.errno === 1062) {
             logger.info(
               `Duplicate proration webhook for sub ${match.id} (key ${prorationIdemKey?.slice(0, 12)}…) — original already exists`,
             );
@@ -818,7 +818,7 @@ router.post("/", asyncHandler(async (req, res) => {
           await db.create("credit_notes", {
             id: creditNoteId,
             orgId,
-            clientId: match.client_id,
+            clientId: match.clientId,
             creditNoteNumber: creditNumber,
             status: "open",
             date: dayjs(now).format("YYYY-MM-DD"),
@@ -827,7 +827,7 @@ router.post("/", asyncHandler(async (req, res) => {
             total: creditAmount,
             balance: creditAmount,
             reason: `Mid-cycle proration credit for ${body.module_name || body.module_slug} — ${daysRemaining} of ${totalDays} days remaining at lower rate`,
-            createdBy: match.client_id,
+            createdBy: match.clientId,
             createdAt: now,
             updatedAt: now,
             empcloudIdempotencyKey: prorationIdemKey,
@@ -850,7 +850,7 @@ router.post("/", asyncHandler(async (req, res) => {
             `Issued proration credit note ${creditNumber} for sub ${match.id}: -${creditAmount} (${daysRemaining}/${totalDays} days)`,
           );
         } catch (err) {
-          if ((err as any)?.code === "ER_DUP_ENTRY") {
+          if ((err as any)?.code === "ER_DUP_ENTRY" || (err as any)?.errno === 1062) {
             logger.info(
               `Duplicate proration webhook for sub ${match.id} (key ${prorationIdemKey?.slice(0, 12)}…) — original credit already exists`,
             );
@@ -887,7 +887,7 @@ router.post("/", asyncHandler(async (req, res) => {
           await db.create("invoices", {
             id: invoiceId,
             orgId,
-            clientId: match.client_id,
+            clientId: match.clientId,
             invoiceNumber,
             status: "sent",
             issueDate: dayjs(now).format("YYYY-MM-DD"),
@@ -900,7 +900,7 @@ router.post("/", asyncHandler(async (req, res) => {
             amountDue: lineTotal,
             currency: body.currency || "INR",
             notes: `First billing period for ${body.module_name || body.module_slug} after trial — ${body.total_seats} seats × ${ratePerSeat}`,
-            createdBy: match.client_id,
+            createdBy: match.clientId,
             createdAt: now,
             updatedAt: now,
             sentAt: now,
@@ -920,7 +920,7 @@ router.post("/", asyncHandler(async (req, res) => {
 
           const invoiceClient = await db.findById<{ email: string; portalEmail?: string }>(
             "clients",
-            match.client_id,
+            match.clientId,
             orgId,
           );
 
@@ -929,7 +929,7 @@ router.post("/", asyncHandler(async (req, res) => {
             invoiceId,
             invoice: {
               id: invoiceId,
-              clientId: match.client_id,
+              clientId: match.clientId,
               clientEmail: invoiceClient?.portalEmail ?? invoiceClient?.email,
               invoiceNumber,
               total: lineTotal,
@@ -964,7 +964,7 @@ router.post("/", asyncHandler(async (req, res) => {
         const moduleLabel = body.module_name || body.module_slug;
 
         const currentInvoice = await knex("invoices")
-          .where({ org_id: orgId, client_id: match.client_id })
+          .where({ org_id: orgId, client_id: match.clientId })
           .whereNotIn("status", ["void", "written_off"])
           .where("notes", "like", `%${moduleLabel}%`)
           .orderBy("created_at", "desc")
@@ -1001,7 +1001,7 @@ router.post("/", asyncHandler(async (req, res) => {
             await db.create("invoices", {
               id: upgradeInvoiceId,
               orgId,
-              clientId: match.client_id,
+              clientId: match.clientId,
               invoiceNumber: upgradeInvoiceNumber,
               status: "sent",
               issueDate: dayjs(now).format("YYYY-MM-DD"),
@@ -1032,7 +1032,7 @@ router.post("/", asyncHandler(async (req, res) => {
             });
             const upgradeClient = await db.findById<{ email: string; portalEmail?: string }>(
               "clients",
-              match.client_id,
+              match.clientId,
               orgId,
             );
             emit("invoice.created", {
@@ -1040,7 +1040,7 @@ router.post("/", asyncHandler(async (req, res) => {
               invoiceId: upgradeInvoiceId,
               invoice: {
                 id: upgradeInvoiceId,
-                clientId: match.client_id,
+                clientId: match.clientId,
                 clientEmail: upgradeClient?.portalEmail ?? upgradeClient?.email,
                 invoiceNumber: upgradeInvoiceNumber,
                 total: deltaTotal,
@@ -1065,7 +1065,7 @@ router.post("/", asyncHandler(async (req, res) => {
     }
 
     case "subscription.cancelled": {
-      const subs2 = await db.findMany<{ id: string; metadata: string }>("subscriptions", {
+      const subs2 = await db.findMany<{ id: string; metadata: string; quantity: number; planId: string; clientId: string; status: string; currentPeriodStart: string | Date | null; currentPeriodEnd: string | Date | null }>("subscriptions", {
         where: { org_id: orgId },
       });
 
@@ -1090,8 +1090,8 @@ router.post("/", asyncHandler(async (req, res) => {
       // The customer prepaid for the full cycle when this subscription
       // went active; cancelling mid-cycle means we owe them a credit for
       // the unused remainder of the period.
-      const cancelPriorQty = Number((match2 as any).quantity || 1);
-      const cancelPlanId = (match2 as any).plan_id as string | undefined;
+      const cancelPriorQty = Number(match2.quantity || 1);
+      const cancelPlanId = match2.planId;
       const cancelPlanRow = cancelPlanId
         ? await db.findById<{ price: number; currency?: string }>(
             "plans",
@@ -1099,10 +1099,10 @@ router.post("/", asyncHandler(async (req, res) => {
           )
         : null;
       const cancelPlanPrice = cancelPlanRow ? Number(cancelPlanRow.price) : 0;
-      const cancelClientId = (match2 as any).client_id as string;
-      const cancelStatus = (match2 as any).status as string;
-      const cancelPeriodStartIso = (match2 as any).current_period_start as string | undefined;
-      const cancelPeriodEndIso = (match2 as any).current_period_end as string | undefined;
+      const cancelClientId = match2.clientId;
+      const cancelStatus = match2.status;
+      const cancelPeriodStartIso = match2.currentPeriodStart;
+      const cancelPeriodEndIso = match2.currentPeriodEnd;
 
       await db.update("subscriptions", match2.id, {
         status: "cancelled",
@@ -1157,45 +1157,90 @@ router.post("/", asyncHandler(async (req, res) => {
           ? Math.round((cycleCost * cancelDaysUnused) / cancelTotalDays)
           : 0;
 
+      // Only credit a cancellation when the customer ACTUALLY PAID for the
+      // current cycle. An `active` sub whose first-period invoice was never
+      // paid (or was void / written-off) must NOT generate a credit note for
+      // money that never changed hands — otherwise cancelling an unpaid sub
+      // hands the customer free credit. Match the cycle invoice the same way
+      // the seat-change path does: by client + the module label in the notes.
+      let cancelCyclePaid = false;
+      if (cancelStatus === "active" && refundAmount >= 100 && cancelClientId) {
+        const cancelKnex = (db as KnexAdapter).getKnex();
+        const paidInvoice = await cancelKnex("invoices")
+          .where({ org_id: orgId, client_id: cancelClientId })
+          .whereNotIn("status", ["void", "written_off"])
+          .where("notes", "like", `%${body.module_name || body.module_slug}%`)
+          .where("amount_paid", ">", 0)
+          .first();
+        cancelCyclePaid = !!paidInvoice;
+      }
+
       const eligibleForRefund =
-        cancelStatus === "active" && refundAmount >= 100;
+        cancelStatus === "active" && refundAmount >= 100 && cancelCyclePaid;
 
       if (eligibleForRefund) {
+        // Deterministic idempotency key so a duplicate (or concurrent)
+        // `subscription.cancelled` delivery can't issue a second credit note.
+        // The status-flip to "cancelled" above guards sequential replays, but
+        // two deliveries racing before the first UPDATE commits would both
+        // read status="active"; the unique index on empcloud_idempotency_key
+        // stops the double-credit.
+        const cancelIdemKey = prorationKey("cancel", {
+          subscription_id: match2.id,
+          period_start: cancelPeriodStart
+            ? dayjs(cancelPeriodStart).format("YYYY-MM-DD")
+            : "",
+          old_price: cancelPlanPrice,
+          new_price: 0,
+          old_qty: cancelPriorQty,
+          new_qty: 0,
+        });
         const creditNoteId = uuid();
         const creditNumber = `CN-${dayjs(now).format("YYYYMMDD")}-${creditNoteId.slice(0, 6)}`;
-        await db.create("credit_notes", {
-          id: creditNoteId,
-          orgId,
-          clientId: cancelClientId,
-          creditNoteNumber: creditNumber,
-          status: "open",
-          date: dayjs(now).format("YYYY-MM-DD"),
-          subtotal: refundAmount,
-          taxAmount: 0,
-          total: refundAmount,
-          balance: refundAmount,
-          reason: `Cancellation refund for ${body.module_name || body.module_slug} — ${cancelDaysUnused} of ${cancelTotalDays} days unused`,
-          createdBy: cancelClientId,
-          createdAt: now,
-          updatedAt: now,
-        });
-        await db.create("credit_note_items", {
-          id: uuid(),
-          creditNoteId,
-          orgId,
-          name: `Cancellation refund — ${body.module_name || body.module_slug} (${body.plan_tier})`,
-          description: `Unused portion of cycle: ${cancelPriorQty} seats × ${cancelPlanPrice}, ${cancelDaysUnused}/${cancelTotalDays} days remaining`,
-          quantity: 1,
-          rate: refundAmount,
-          discountAmount: 0,
-          taxRate: 0,
-          taxAmount: 0,
-          amount: refundAmount,
-          sortOrder: 0,
-        });
-        logger.info(
-          `Issued cancellation credit note ${creditNumber} for sub ${match2.id}: -${refundAmount} (${cancelDaysUnused}/${cancelTotalDays} days)`,
-        );
+        try {
+          await db.create("credit_notes", {
+            id: creditNoteId,
+            orgId,
+            clientId: cancelClientId,
+            creditNoteNumber: creditNumber,
+            status: "open",
+            date: dayjs(now).format("YYYY-MM-DD"),
+            subtotal: refundAmount,
+            taxAmount: 0,
+            total: refundAmount,
+            balance: refundAmount,
+            reason: `Cancellation refund for ${body.module_name || body.module_slug} — ${cancelDaysUnused} of ${cancelTotalDays} days unused`,
+            createdBy: cancelClientId,
+            createdAt: now,
+            updatedAt: now,
+            empcloudIdempotencyKey: cancelIdemKey,
+          });
+          await db.create("credit_note_items", {
+            id: uuid(),
+            creditNoteId,
+            orgId,
+            name: `Cancellation refund — ${body.module_name || body.module_slug} (${body.plan_tier})`,
+            description: `Unused portion of cycle: ${cancelPriorQty} seats × ${cancelPlanPrice}, ${cancelDaysUnused}/${cancelTotalDays} days remaining`,
+            quantity: 1,
+            rate: refundAmount,
+            discountAmount: 0,
+            taxRate: 0,
+            taxAmount: 0,
+            amount: refundAmount,
+            sortOrder: 0,
+          });
+          logger.info(
+            `Issued cancellation credit note ${creditNumber} for sub ${match2.id}: -${refundAmount} (${cancelDaysUnused}/${cancelTotalDays} days)`,
+          );
+        } catch (err) {
+          if ((err as any)?.code === "ER_DUP_ENTRY" || (err as any)?.errno === 1062) {
+            logger.info(
+              `Duplicate cancellation webhook for sub ${match2.id} — credit note already exists`,
+            );
+          } else {
+            throw err;
+          }
+        }
       }
 
       emit("subscription.cancelled", {
