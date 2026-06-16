@@ -3,11 +3,40 @@ import { authenticateEmpCloud } from "../middleware/empcloud-auth.middleware";
 import { asyncHandler } from "../middleware/error.middleware";
 import { v4 as uuid } from "uuid";
 import dayjs from "dayjs";
+import { createHash } from "crypto";
 import { getDB } from "../../db/adapters/index";
 import { KnexAdapter } from "../../db/adapters/knex.adapter";
 import { logger } from "../../utils/logger";
 import { nextInvoiceNumber } from "../../utils/number-generator";
 import { BadRequestError } from "../../utils/AppError";
+
+// Deterministic idempotency key for proration documents. Built from the
+// exact "change" being prorated: which subscription, which billing period,
+// and the before/after pricing state. Two webhook deliveries of the same
+// `subscription.updated` produce the same key; the second one fails the
+// unique-index INSERT and gets caught + logged as a benign duplicate.
+function prorationKey(
+  kind: "mid-cycle" | "cancel",
+  parts: {
+    subscription_id: string;
+    period_start: string;
+    old_price: number;
+    new_price: number;
+    old_qty: number;
+    new_qty: number;
+  },
+): string {
+  const fingerprint = [
+    kind,
+    parts.subscription_id,
+    parts.period_start,
+    parts.old_price,
+    parts.new_price,
+    parts.old_qty,
+    parts.new_qty,
+  ].join("|");
+  return createHash("sha256").update(fingerprint).digest("hex");
+}
 import { emit } from "../../events/index";
 import { ensureEmpCloudBillingOrg } from "../../services/auth/empcloud-bootstrap.service";
 
@@ -27,6 +56,12 @@ interface EmpCloudEvent {
   plan_tier: string;
   total_seats: number;
   price_per_seat: number;
+  // EmpCloud's `price_per_seat` semantics changed from "monthly base" to
+  // "effective per-cycle agreed price" -- the number the customer actually
+  // saw on the Subscribe modal. To keep older payloads working,
+  // `effective_price_per_seat` is the canonical field for the new shape.
+  // Use it when present; fall back to price_per_seat otherwise.
+  effective_price_per_seat?: number;
   currency?: string;
   billing_cycle: string;
   status?: string;
@@ -251,19 +286,119 @@ router.post("/", asyncHandler(async (req, res) => {
       const existingSub = existingSubRow ? { id: existingSubRow.id as string } : null;
 
       if (existingSub) {
-        logger.info(`Subscription already exists for EmpCloud sub ${body.subscription_id}, skipping`);
-        // Surface the client + plan ids on the idempotent path too so the
-        // EmpCloud caller can still persist the mapping if it lost track.
-        const existingFull = await db.findById<{ id: string; client_id: string; plan_id: string }>(
-          "subscriptions",
-          existingSub.id,
-        );
+        // The subscription row already exists -- but the FIRST-PERIOD
+        // invoice might NOT, in two real scenarios we've seen:
+        //   1. The original invoice was manually deleted by an operator,
+        //      and the customer re-clicks Subscribe to get a fresh bill.
+        //   2. The first webhook to create this sub raced with a second
+        //      webhook that finished the sub-create but failed
+        //      mid-invoice-create, then was never retried.
+        // Re-issue the missing invoice (only if not currently on trial)
+        // so the customer's "Subscribe" action visibly produces a bill.
+        // Sub creation is idempotent -- no double subscription.
+        const existingFull = await db.findById<{
+          id: string;
+          clientId: string;
+          planId: string;
+          status: string;
+          quantity: number;
+        }>("subscriptions", existingSub.id);
+
+        const now = new Date();
+        const trialEndDateIdem = body.trial_end ? new Date(body.trial_end) : null;
+        const isTrialIdem =
+          body.status === "trial" ||
+          (trialEndDateIdem !== null && trialEndDateIdem > now);
+
+        // Has THIS subscription's plan already produced a first-period
+        // invoice for the period EmpCloud just sent? If yes we're truly
+        // idempotent; otherwise re-issue.
+        const periodStartIdemIso = body.period_start
+          ? dayjs(body.period_start).format("YYYY-MM-DD")
+          : null;
+        const existingInvoice =
+          existingFull?.planId && periodStartIdemIso
+            ? await knex("invoices")
+                .where({
+                  org_id: orgId,
+                  client_id: existingFull.clientId,
+                  issue_date: periodStartIdemIso,
+                })
+                .whereRaw("notes LIKE ?", [`%${body.module_slug}%`])
+                .first()
+            : await knex("invoices")
+                .where({
+                  org_id: orgId,
+                  client_id: existingFull?.clientId ?? clientId,
+                })
+                .whereRaw("notes LIKE ?", [`%${body.module_slug}%`])
+                .first();
+
+        let reissuedInvoiceId: string | null = null;
+        let reissuedInvoiceNumber: string | null = null;
+        if (
+          !existingInvoice &&
+          !isTrialIdem &&
+          existingFull &&
+          existingFull.status !== "cancelled"
+        ) {
+          const ratePerSeatIdem =
+            (body.effective_price_per_seat ?? body.price_per_seat) || 0;
+          const qtyIdem = body.total_seats || existingFull.quantity || 1;
+          const lineTotalIdem = ratePerSeatIdem * qtyIdem;
+          if (lineTotalIdem > 0) {
+            reissuedInvoiceId = uuid();
+            reissuedInvoiceNumber = await nextInvoiceNumber(orgId);
+            await db.create("invoices", {
+              id: reissuedInvoiceId,
+              orgId,
+              clientId: existingFull.clientId,
+              invoiceNumber: reissuedInvoiceNumber,
+              status: "sent",
+              issueDate: dayjs(now).format("YYYY-MM-DD"),
+              dueDate: dayjs(now).format("YYYY-MM-DD"),
+              subtotal: lineTotalIdem,
+              discountAmount: 0,
+              taxAmount: 0,
+              total: lineTotalIdem,
+              amountPaid: 0,
+              amountDue: lineTotalIdem,
+              currency: body.currency || "INR",
+              notes: `Prepaid period invoice (reissued) for ${body.module_name || body.module_slug} (EmpCloud org ${body.organization_id})`,
+              createdBy: existingFull.clientId,
+              createdAt: now,
+              updatedAt: now,
+              sentAt: now,
+            });
+            await db.create("invoice_items", {
+              id: uuid(),
+              invoiceId: reissuedInvoiceId,
+              orgId,
+              name: `${body.module_name || body.module_slug} — ${body.plan_tier}`,
+              description: `${qtyIdem} seats at ${ratePerSeatIdem} per seat`,
+              quantity: qtyIdem,
+              rate: ratePerSeatIdem,
+              amount: lineTotalIdem,
+              sortOrder: 0,
+            });
+            logger.info(
+              `Re-issued first-period invoice ${reissuedInvoiceNumber} for existing sub ${existingSub.id} (original was missing)`,
+            );
+          }
+        } else {
+          logger.info(
+            `Subscription already exists for EmpCloud sub ${body.subscription_id} with valid invoice; skipping`,
+          );
+        }
+
         res.json({
           success: true,
           acknowledged: true,
           subscription_id: existingSub.id,
-          client_id: existingFull?.client_id ?? clientId,
-          plan_id: existingFull?.plan_id ?? null,
+          client_id: existingFull?.clientId ?? clientId,
+          plan_id: existingFull?.planId ?? null,
+          invoice_id: reissuedInvoiceId,
+          invoice_number: reissuedInvoiceNumber,
         });
         return;
       }
@@ -275,9 +410,15 @@ router.post("/", asyncHandler(async (req, res) => {
       });
 
       if (!plan) {
-        // Auto-create a plan
+        // Auto-create a plan. Price is the effective per-seat per-cycle
+        // amount the customer agreed to on the Subscribe modal -- prefer
+        // the new `effective_price_per_seat` field, fall back to
+        // `price_per_seat` for older EmpCloud builds whose
+        // price_per_seat was the monthly base only.
         const planId = uuid();
         const now = new Date();
+        const effectivePrice =
+          (body.effective_price_per_seat ?? body.price_per_seat) || 0;
         await db.create("plans", {
           id: planId,
           orgId,
@@ -285,7 +426,7 @@ router.post("/", asyncHandler(async (req, res) => {
           description: `Auto-created plan for ${body.module_name || body.module_slug} (${body.plan_tier})`,
           billingInterval: mapBillingCycle(body.billing_cycle),
           trialPeriodDays: 0,
-          price: body.price_per_seat || 0,
+          price: effectivePrice,
           setupFee: 0,
           currency: body.currency || "INR",
           features: JSON.stringify([]),
@@ -373,7 +514,11 @@ router.post("/", asyncHandler(async (req, res) => {
         // trialEnd — this is the standard SaaS flow (free trial, then bill).
         invoiceId = uuid();
         invoiceNumber = await nextInvoiceNumber(orgId);
-        lineTotal = (body.price_per_seat || 0) * (body.total_seats || 1);
+        // Use the effective per-seat per-cycle price agreed on the modal,
+        // not the monthly base. Fallback keeps old EmpCloud builds working.
+        const ratePerSeat =
+          (body.effective_price_per_seat ?? body.price_per_seat) || 0;
+        lineTotal = ratePerSeat * (body.total_seats || 1);
 
         await db.create("invoices", {
           id: invoiceId,
@@ -402,9 +547,9 @@ router.post("/", asyncHandler(async (req, res) => {
           invoiceId,
           orgId,
           name: `${body.module_name || body.module_slug} — ${body.plan_tier}`,
-          description: `${body.total_seats} seats at ${body.price_per_seat} per seat`,
+          description: `${body.total_seats} seats at ${ratePerSeat} per seat`,
           quantity: body.total_seats || 1,
-          rate: body.price_per_seat || 0,
+          rate: ratePerSeat,
           amount: lineTotal,
           sortOrder: 0,
         });
@@ -458,7 +603,7 @@ router.post("/", asyncHandler(async (req, res) => {
 
     case "subscription.updated": {
       // Find existing subscription by empcloud metadata
-      const subs = await db.findMany<{ id: string; status: string; plan_id: string; client_id: string; metadata: string; quantity: number }>("subscriptions", {
+      const subs = await db.findMany<{ id: string; status: string; planId: string; clientId: string; metadata: string; quantity: number; currentPeriodStart: string | Date | null; currentPeriodEnd: string | Date | null }>("subscriptions", {
         where: { org_id: orgId },
       });
 
@@ -504,11 +649,221 @@ router.post("/", asyncHandler(async (req, res) => {
         ).format("YYYY-MM-DD");
       }
 
+      // Capture BEFORE-state for proration. The cycle cost the customer
+      // already paid (or is on the hook for) is priorPlanPrice ×
+      // priorQty; after this update it'll become newPlanPrice × nextQty.
+      // The adjustment is the per-day delta × days remaining in the
+      // cycle. Names are deliberately distinct from the existing
+      // oldQty/newQty further down so the two blocks don't collide.
+      const priorQty = Number(match.quantity || 1);
+      const priorPlanRow = match.planId
+        ? await db.findById<{ price: number; currency?: string }>(
+            "plans",
+            match.planId,
+          )
+        : null;
+      const priorPlanPrice = priorPlanRow ? Number(priorPlanRow.price) : 0;
+      const wasOnTrial = match.status === "trialing";
+
       await db.update("subscriptions", match.id, updatePayload, orgId);
+
+      // Sync the linked plan's price from the latest effective per-seat
+      // per-cycle amount EmpCloud just sent. Before this, updating an
+      // existing subscription (tier change, cycle change, seat band cross,
+      // free/comp toggle) changed the customer-promised price on
+      // EmpCloud's side but left the plan in emp-billing pinned at the
+      // creation-time price -- so the NEXT renewal invoice would charge
+      // the old rate.
+      //
+      // Sync ONLY when the payload actually carries a price field. A
+      // missing field means "no price info in this event" (e.g. a status-
+      // only update). An EXPLICIT zero means "this is now comped" -- we
+      // must sync the zero so the renewal generates a ₹0 invoice (or none
+      // at all). The previous `> 0` guard would have silently kept the old
+      // non-zero price after a Mark-Free.
+      const sentPriceField =
+        body.effective_price_per_seat ?? body.price_per_seat;
+      let newPlanPrice = priorPlanPrice;
+      if (sentPriceField !== undefined && sentPriceField !== null && match.planId) {
+        const candidateRate = Number(sentPriceField);
+        if (Number.isFinite(candidateRate) && candidateRate >= 0) {
+          await db.update(
+            "plans",
+            match.planId,
+            { price: candidateRate, updatedAt: now },
+            orgId,
+          );
+          newPlanPrice = candidateRate;
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // MID-CYCLE PRORATION
+      //
+      // When the cycle cost changes (tier, cycle length, seat band, comp
+      // toggle, or seat count) and the customer is mid-cycle, charge or
+      // credit the day-weighted difference for the remainder of the cycle.
+      //
+      // proration_amount = (newCycleCost - oldCycleCost) × daysRemaining / totalDays
+      //
+      // Skip when:
+      //   - was on trial (no money has changed hands yet; the upcoming
+      //     first-period invoice already uses the new price)
+      //   - status is becoming cancelled (cancellation events handle their
+      //     own credit/refund flow)
+      //   - period dates are missing or in the past (can't compute days)
+      //   - adjustment is tiny (< 1 unit of currency = 100 paise/cents)
+      //     to avoid rounding-noise invoices
+      // ──────────────────────────────────────────────────────────────────
+      const nextQty = Number(updatePayload.quantity || priorQty);
+      const transitioningToCancelled =
+        body.status === "cancelled" && !isTrial;
+      const periodStartIso = match.currentPeriodStart;
+      const periodEndIso = match.currentPeriodEnd;
+      const periodStart = periodStartIso ? new Date(periodStartIso) : null;
+      const periodEnd = periodEndIso ? new Date(periodEndIso) : null;
+      const totalDays = periodStart && periodEnd
+        ? Math.max(1, Math.round((periodEnd.getTime() - periodStart.getTime()) / 86400000))
+        : 0;
+      const daysRemaining = periodEnd
+        ? Math.max(0, Math.round((periodEnd.getTime() - now.getTime()) / 86400000))
+        : 0;
+      const oldCycleCost = priorPlanPrice * priorQty;
+      const newCycleCost = newPlanPrice * nextQty;
+      const rawAdjustment =
+        totalDays > 0 && daysRemaining > 0
+          ? Math.round(((newCycleCost - oldCycleCost) * daysRemaining) / totalDays)
+          : 0;
+
+      const eligibleForProration =
+        !wasOnTrial &&
+        !isTrial &&
+        !transitioningToCancelled &&
+        Math.abs(rawAdjustment) >= 100; // < ₹1 / $1 worth → ignore as noise
+
+      // Compute idempotency key once for both branches.
+      const prorationIdemKey = eligibleForProration
+        ? prorationKey("mid-cycle", {
+            subscription_id: match.id,
+            period_start: periodStart ? dayjs(periodStart).format("YYYY-MM-DD") : "",
+            old_price: priorPlanPrice,
+            new_price: newPlanPrice,
+            old_qty: priorQty,
+            new_qty: nextQty,
+          })
+        : null;
+
+      if (eligibleForProration && rawAdjustment > 0) {
+        // Upgrade / seat increase / cycle shorten → customer owes more.
+        // Issue a one-time prepaid invoice for the remainder of the cycle.
+        const invoiceId = uuid();
+        const invoiceNumber = await nextInvoiceNumber(orgId);
+        try {
+          await db.create("invoices", {
+            id: invoiceId,
+            orgId,
+            clientId: match.clientId,
+            invoiceNumber,
+            status: "sent",
+            issueDate: dayjs(now).format("YYYY-MM-DD"),
+            dueDate: dayjs(now).format("YYYY-MM-DD"),
+            subtotal: rawAdjustment,
+            discountAmount: 0,
+            taxAmount: 0,
+            total: rawAdjustment,
+            amountPaid: 0,
+            amountDue: rawAdjustment,
+            currency: body.currency || "INR",
+            notes: `Mid-cycle proration for ${body.module_name || body.module_slug} — ${daysRemaining} of ${totalDays} days remaining at new rate`,
+            createdBy: match.clientId,
+            createdAt: now,
+            updatedAt: now,
+            sentAt: now,
+            empcloudIdempotencyKey: prorationIdemKey,
+          });
+          await db.create("invoice_items", {
+            id: uuid(),
+            invoiceId,
+            orgId,
+            name: `Proration — ${body.module_name || body.module_slug} (${body.plan_tier})`,
+            description: `Day-weighted difference: ${nextQty} seats × ${newPlanPrice} (new) vs ${priorQty} × ${priorPlanPrice} (old), prorated over ${daysRemaining}/${totalDays} days`,
+            quantity: 1,
+            rate: rawAdjustment,
+            amount: rawAdjustment,
+            sortOrder: 0,
+          });
+          logger.info(
+            `Issued proration invoice ${invoiceNumber} for sub ${match.id}: +${rawAdjustment} (${daysRemaining}/${totalDays} days)`,
+          );
+        } catch (err) {
+          // ER_DUP_ENTRY from the unique idempotency-key index → benign
+          // duplicate webhook delivery, the original proration is already
+          // in the DB. Swallow + log; everything else rethrows.
+          if ((err as any)?.code === "ER_DUP_ENTRY" || (err as any)?.errno === 1062) {
+            logger.info(
+              `Duplicate proration webhook for sub ${match.id} (key ${prorationIdemKey?.slice(0, 12)}…) — original already exists`,
+            );
+          } else {
+            throw err;
+          }
+        }
+      } else if (eligibleForProration && rawAdjustment < 0) {
+        // Downgrade / seat decrease / comp → customer owes less.
+        // Issue a credit note for the unused portion. The credit applies
+        // to future invoices (refund handled separately if requested).
+        const creditNoteId = uuid();
+        const creditAmount = Math.abs(rawAdjustment);
+        const creditNumber = `CN-${dayjs(now).format("YYYYMMDD")}-${creditNoteId.slice(0, 6)}`;
+        try {
+          await db.create("credit_notes", {
+            id: creditNoteId,
+            orgId,
+            clientId: match.clientId,
+            creditNoteNumber: creditNumber,
+            status: "open",
+            date: dayjs(now).format("YYYY-MM-DD"),
+            subtotal: creditAmount,
+            taxAmount: 0,
+            total: creditAmount,
+            balance: creditAmount,
+            reason: `Mid-cycle proration credit for ${body.module_name || body.module_slug} — ${daysRemaining} of ${totalDays} days remaining at lower rate`,
+            createdBy: match.clientId,
+            createdAt: now,
+            updatedAt: now,
+            empcloudIdempotencyKey: prorationIdemKey,
+          });
+          await db.create("credit_note_items", {
+            id: uuid(),
+            creditNoteId,
+            orgId,
+            name: `Proration credit — ${body.module_name || body.module_slug} (${body.plan_tier})`,
+            description: `Day-weighted difference: ${nextQty} seats × ${newPlanPrice} (new) vs ${priorQty} × ${priorPlanPrice} (old), prorated over ${daysRemaining}/${totalDays} days`,
+            quantity: 1,
+            rate: creditAmount,
+            discountAmount: 0,
+            taxRate: 0,
+            taxAmount: 0,
+            amount: creditAmount,
+            sortOrder: 0,
+          });
+          logger.info(
+            `Issued proration credit note ${creditNumber} for sub ${match.id}: -${creditAmount} (${daysRemaining}/${totalDays} days)`,
+          );
+        } catch (err) {
+          if ((err as any)?.code === "ER_DUP_ENTRY" || (err as any)?.errno === 1062) {
+            logger.info(
+              `Duplicate proration webhook for sub ${match.id} (key ${prorationIdemKey?.slice(0, 12)}…) — original credit already exists`,
+            );
+          } else {
+            throw err;
+          }
+        }
+      }
 
       logger.info(`Updated subscription ${match.id} for EmpCloud org ${body.organization_id}`, {
         status: updatePayload.status,
         quantity: updatePayload.quantity,
+        plan_price: newPlanPrice,
       });
 
       // PREPAID first-period invoice on trialing → active transition.
@@ -519,7 +874,11 @@ router.post("/", asyncHandler(async (req, res) => {
       // matches issue_date so payment is expected on day of issue.
       const transitioningToActive = match.status === "trialing" && !isTrial && periodStartUpdate && periodEndUpdate;
       if (transitioningToActive) {
-        const lineTotal = (body.price_per_seat || 0) * (body.total_seats || 1);
+        // Same effective-price preference here so the post-trial first
+        // invoice matches what the modal promised.
+        const ratePerSeat =
+          (body.effective_price_per_seat ?? body.price_per_seat) || 0;
+        const lineTotal = ratePerSeat * (body.total_seats || 1);
 
         if (lineTotal > 0) {
           const invoiceId = uuid();
@@ -528,7 +887,7 @@ router.post("/", asyncHandler(async (req, res) => {
           await db.create("invoices", {
             id: invoiceId,
             orgId,
-            clientId: match.client_id,
+            clientId: match.clientId,
             invoiceNumber,
             status: "sent",
             issueDate: dayjs(now).format("YYYY-MM-DD"),
@@ -540,8 +899,8 @@ router.post("/", asyncHandler(async (req, res) => {
             amountPaid: 0,
             amountDue: lineTotal,
             currency: body.currency || "INR",
-            notes: `First billing period for ${body.module_name || body.module_slug} after trial — ${body.total_seats} seats × ${body.price_per_seat}`,
-            createdBy: match.client_id,
+            notes: `First billing period for ${body.module_name || body.module_slug} after trial — ${body.total_seats} seats × ${ratePerSeat}`,
+            createdBy: match.clientId,
             createdAt: now,
             updatedAt: now,
             sentAt: now,
@@ -552,16 +911,16 @@ router.post("/", asyncHandler(async (req, res) => {
             invoiceId,
             orgId,
             name: `${body.module_name || body.module_slug} — ${body.plan_tier}`,
-            description: `${body.total_seats} seats × ${body.price_per_seat} (prepaid: ${dayjs(periodStartUpdate).format("DD MMM YYYY")} → ${dayjs(periodEndUpdate).format("DD MMM YYYY")})`,
+            description: `${body.total_seats} seats × ${ratePerSeat} (prepaid: ${dayjs(periodStartUpdate).format("DD MMM YYYY")} → ${dayjs(periodEndUpdate).format("DD MMM YYYY")})`,
             quantity: body.total_seats || 1,
-            rate: body.price_per_seat || 0,
+            rate: ratePerSeat,
             amount: lineTotal,
             sortOrder: 0,
           });
 
           const invoiceClient = await db.findById<{ email: string; portalEmail?: string }>(
             "clients",
-            match.client_id,
+            match.clientId,
             orgId,
           );
 
@@ -570,7 +929,7 @@ router.post("/", asyncHandler(async (req, res) => {
             invoiceId,
             invoice: {
               id: invoiceId,
-              clientId: match.client_id,
+              clientId: match.clientId,
               clientEmail: invoiceClient?.portalEmail ?? invoiceClient?.email,
               invoiceNumber,
               total: lineTotal,
@@ -605,7 +964,7 @@ router.post("/", asyncHandler(async (req, res) => {
         const moduleLabel = body.module_name || body.module_slug;
 
         const currentInvoice = await knex("invoices")
-          .where({ org_id: orgId, client_id: match.client_id })
+          .where({ org_id: orgId, client_id: match.clientId })
           .whereNotIn("status", ["void", "written_off"])
           .where("notes", "like", `%${moduleLabel}%`)
           .orderBy("created_at", "desc")
@@ -642,7 +1001,7 @@ router.post("/", asyncHandler(async (req, res) => {
             await db.create("invoices", {
               id: upgradeInvoiceId,
               orgId,
-              clientId: match.client_id,
+              clientId: match.clientId,
               invoiceNumber: upgradeInvoiceNumber,
               status: "sent",
               issueDate: dayjs(now).format("YYYY-MM-DD"),
@@ -673,7 +1032,7 @@ router.post("/", asyncHandler(async (req, res) => {
             });
             const upgradeClient = await db.findById<{ email: string; portalEmail?: string }>(
               "clients",
-              match.client_id,
+              match.clientId,
               orgId,
             );
             emit("invoice.created", {
@@ -681,7 +1040,7 @@ router.post("/", asyncHandler(async (req, res) => {
               invoiceId: upgradeInvoiceId,
               invoice: {
                 id: upgradeInvoiceId,
-                clientId: match.client_id,
+                clientId: match.clientId,
                 clientEmail: upgradeClient?.portalEmail ?? upgradeClient?.email,
                 invoiceNumber: upgradeInvoiceNumber,
                 total: deltaTotal,
@@ -706,7 +1065,7 @@ router.post("/", asyncHandler(async (req, res) => {
     }
 
     case "subscription.cancelled": {
-      const subs2 = await db.findMany<{ id: string; metadata: string }>("subscriptions", {
+      const subs2 = await db.findMany<{ id: string; metadata: string; quantity: number; planId: string; clientId: string; status: string; currentPeriodStart: string | Date | null; currentPeriodEnd: string | Date | null }>("subscriptions", {
         where: { org_id: orgId },
       });
 
@@ -726,6 +1085,25 @@ router.post("/", asyncHandler(async (req, res) => {
       }
 
       const now = new Date();
+
+      // Capture BEFORE-cancel state for a refund-on-cancel proration.
+      // The customer prepaid for the full cycle when this subscription
+      // went active; cancelling mid-cycle means we owe them a credit for
+      // the unused remainder of the period.
+      const cancelPriorQty = Number(match2.quantity || 1);
+      const cancelPlanId = match2.planId;
+      const cancelPlanRow = cancelPlanId
+        ? await db.findById<{ price: number; currency?: string }>(
+            "plans",
+            cancelPlanId,
+          )
+        : null;
+      const cancelPlanPrice = cancelPlanRow ? Number(cancelPlanRow.price) : 0;
+      const cancelClientId = match2.clientId;
+      const cancelStatus = match2.status;
+      const cancelPeriodStartIso = match2.currentPeriodStart;
+      const cancelPeriodEndIso = match2.currentPeriodEnd;
+
       await db.update("subscriptions", match2.id, {
         status: "cancelled",
         cancelledAt: now,
@@ -734,6 +1112,136 @@ router.post("/", asyncHandler(async (req, res) => {
       }, orgId);
 
       logger.info(`Cancelled subscription ${match2.id} for EmpCloud org ${body.organization_id}`);
+
+      // ──────────────────────────────────────────────────────────────────
+      // CANCEL PRORATION
+      //
+      // If the cancelled subscription was active (i.e. prepaid for the
+      // current cycle) AND there are days left in the cycle, issue a
+      // credit note for the unused days. The credit is `open` status with
+      // its full balance available to be applied to the next invoice OR
+      // refunded by ops.
+      //
+      // Skip when:
+      //   - subscription was on trial (nothing was billed yet)
+      //   - subscription was already cancelled / expired (idempotency)
+      //   - the period has already ended (nothing unused)
+      //   - the credit would be < 1 unit of currency (rounding noise)
+      // ──────────────────────────────────────────────────────────────────
+      const cancelPeriodStart = cancelPeriodStartIso
+        ? new Date(cancelPeriodStartIso)
+        : null;
+      const cancelPeriodEnd = cancelPeriodEndIso
+        ? new Date(cancelPeriodEndIso)
+        : null;
+      const cancelTotalDays = cancelPeriodStart && cancelPeriodEnd
+        ? Math.max(
+            1,
+            Math.round(
+              (cancelPeriodEnd.getTime() - cancelPeriodStart.getTime()) /
+                86400000,
+            ),
+          )
+        : 0;
+      const cancelDaysUnused = cancelPeriodEnd
+        ? Math.max(
+            0,
+            Math.round(
+              (cancelPeriodEnd.getTime() - now.getTime()) / 86400000,
+            ),
+          )
+        : 0;
+      const cycleCost = cancelPlanPrice * cancelPriorQty;
+      const refundAmount =
+        cancelTotalDays > 0 && cancelDaysUnused > 0
+          ? Math.round((cycleCost * cancelDaysUnused) / cancelTotalDays)
+          : 0;
+
+      // Only credit a cancellation when the customer ACTUALLY PAID for the
+      // current cycle. An `active` sub whose first-period invoice was never
+      // paid (or was void / written-off) must NOT generate a credit note for
+      // money that never changed hands — otherwise cancelling an unpaid sub
+      // hands the customer free credit. Match the cycle invoice the same way
+      // the seat-change path does: by client + the module label in the notes.
+      let cancelCyclePaid = false;
+      if (cancelStatus === "active" && refundAmount >= 100 && cancelClientId) {
+        const cancelKnex = (db as KnexAdapter).getKnex();
+        const paidInvoice = await cancelKnex("invoices")
+          .where({ org_id: orgId, client_id: cancelClientId })
+          .whereNotIn("status", ["void", "written_off"])
+          .where("notes", "like", `%${body.module_name || body.module_slug}%`)
+          .where("amount_paid", ">", 0)
+          .first();
+        cancelCyclePaid = !!paidInvoice;
+      }
+
+      const eligibleForRefund =
+        cancelStatus === "active" && refundAmount >= 100 && cancelCyclePaid;
+
+      if (eligibleForRefund) {
+        // Deterministic idempotency key so a duplicate (or concurrent)
+        // `subscription.cancelled` delivery can't issue a second credit note.
+        // The status-flip to "cancelled" above guards sequential replays, but
+        // two deliveries racing before the first UPDATE commits would both
+        // read status="active"; the unique index on empcloud_idempotency_key
+        // stops the double-credit.
+        const cancelIdemKey = prorationKey("cancel", {
+          subscription_id: match2.id,
+          period_start: cancelPeriodStart
+            ? dayjs(cancelPeriodStart).format("YYYY-MM-DD")
+            : "",
+          old_price: cancelPlanPrice,
+          new_price: 0,
+          old_qty: cancelPriorQty,
+          new_qty: 0,
+        });
+        const creditNoteId = uuid();
+        const creditNumber = `CN-${dayjs(now).format("YYYYMMDD")}-${creditNoteId.slice(0, 6)}`;
+        try {
+          await db.create("credit_notes", {
+            id: creditNoteId,
+            orgId,
+            clientId: cancelClientId,
+            creditNoteNumber: creditNumber,
+            status: "open",
+            date: dayjs(now).format("YYYY-MM-DD"),
+            subtotal: refundAmount,
+            taxAmount: 0,
+            total: refundAmount,
+            balance: refundAmount,
+            reason: `Cancellation refund for ${body.module_name || body.module_slug} — ${cancelDaysUnused} of ${cancelTotalDays} days unused`,
+            createdBy: cancelClientId,
+            createdAt: now,
+            updatedAt: now,
+            empcloudIdempotencyKey: cancelIdemKey,
+          });
+          await db.create("credit_note_items", {
+            id: uuid(),
+            creditNoteId,
+            orgId,
+            name: `Cancellation refund — ${body.module_name || body.module_slug} (${body.plan_tier})`,
+            description: `Unused portion of cycle: ${cancelPriorQty} seats × ${cancelPlanPrice}, ${cancelDaysUnused}/${cancelTotalDays} days remaining`,
+            quantity: 1,
+            rate: refundAmount,
+            discountAmount: 0,
+            taxRate: 0,
+            taxAmount: 0,
+            amount: refundAmount,
+            sortOrder: 0,
+          });
+          logger.info(
+            `Issued cancellation credit note ${creditNumber} for sub ${match2.id}: -${refundAmount} (${cancelDaysUnused}/${cancelTotalDays} days)`,
+          );
+        } catch (err) {
+          if ((err as any)?.code === "ER_DUP_ENTRY" || (err as any)?.errno === 1062) {
+            logger.info(
+              `Duplicate cancellation webhook for sub ${match2.id} — credit note already exists`,
+            );
+          } else {
+            throw err;
+          }
+        }
+      }
 
       emit("subscription.cancelled", {
         orgId,
