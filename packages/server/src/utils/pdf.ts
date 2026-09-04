@@ -10,15 +10,19 @@ import dayjs from "dayjs";
 // PDF GENERATOR — Handlebars → HTML → Puppeteer → PDF Buffer
 // ============================================================================
 
-// Register helpers once
-Handlebars.registerHelper("formatMoney", (amount: number, currency: string) =>
+// Keep PDF helpers isolated from email templates. Both subsystems use helper
+// names such as `formatMoney`, but they intentionally have different input
+// contracts; registering them on the global Handlebars instance makes import
+// order change invoice amounts.
+const pdfHandlebars = Handlebars.create();
+pdfHandlebars.registerHelper("formatMoney", (amount: number, currency: string) =>
   formatMoney(amount, currency)
 );
-Handlebars.registerHelper("formatDate", (date: Date | string) =>
+pdfHandlebars.registerHelper("formatDate", (date: Date | string) =>
   dayjs(date).format("DD MMM YYYY")
 );
-Handlebars.registerHelper("inc", (index: number) => index + 1);
-Handlebars.registerHelper("subtract", (a: number, b: number) => (a ?? 0) - (b ?? 0));
+pdfHandlebars.registerHelper("inc", (index: number) => index + 1);
+pdfHandlebars.registerHelper("subtract", (a: number, b: number) => (a ?? 0) - (b ?? 0));
 
 // Cache compiled templates
 const templateCache = new Map<string, HandlebarsTemplateDelegate>();
@@ -43,11 +47,66 @@ function getTemplatesDir(): string {
 
 const TEMPLATES_DIR = getTemplatesDir();
 
+const SYSTEM_BROWSER_PATHS: Record<NodeJS.Platform, string[]> = {
+  aix: [],
+  android: [],
+  darwin: [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  ],
+  freebsd: ["/usr/local/bin/chromium"],
+  haiku: [],
+  linux: [
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+  ],
+  openbsd: ["/usr/local/bin/chrome", "/usr/local/bin/chromium"],
+  sunos: [],
+  win32: [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  ],
+  cygwin: [],
+  netbsd: ["/usr/pkg/bin/chromium"],
+};
+
+/**
+ * Puppeteer's downloaded browser cache is not always copied into production
+ * images. Prefer an explicitly configured executable, then discover the
+ * system Chrome/Chromium installed by the host or container.
+ */
+export function findBrowserExecutable(
+  platform: NodeJS.Platform = process.platform,
+  exists: (candidate: string) => boolean = fs.existsSync,
+): string | undefined {
+  const configuredPaths = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    process.env.CHROME_PATH,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const candidates = [...configuredPaths, ...(SYSTEM_BROWSER_PATHS[platform] ?? [])];
+
+  return candidates.find((candidate) => exists(candidate));
+}
+
+function launchPdfBrowser() {
+  const executablePath = findBrowserExecutable();
+  return puppeteer.launch({
+    headless: true,
+    ...(executablePath ? { executablePath } : {}),
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+  });
+}
+
 function loadTemplate(name: string): HandlebarsTemplateDelegate {
   if (templateCache.has(name)) return templateCache.get(name)!;
   const templatePath = path.join(TEMPLATES_DIR, `${name}.hbs`);
   const source = fs.readFileSync(templatePath, "utf-8");
-  const compiled = Handlebars.compile(source);
+  const compiled = pdfHandlebars.compile(source);
   templateCache.set(name, compiled);
   return compiled;
 }
@@ -171,10 +230,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
     hasFooter: !!(data.invoice.notes || data.invoice.terms),
   });
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
-  });
+  const browser = await launchPdfBrowser();
 
   try {
     const page = await browser.newPage();
@@ -215,10 +271,7 @@ export async function generateQuotePdf(data: QuotePdfData): Promise<Buffer> {
     hasFooter: !!(data.quote.notes || data.quote.terms),
   });
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
-  });
+  const browser = await launchPdfBrowser();
 
   try {
     const page = await browser.newPage();
@@ -258,10 +311,7 @@ export async function generateCreditNotePdf(data: CreditNotePdfData): Promise<Bu
     brandPrimary: orgBrand.brandPrimary,
   });
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
-  });
+  const browser = await launchPdfBrowser();
 
   try {
     const page = await browser.newPage();
@@ -299,10 +349,7 @@ export async function generateReceiptPdf(data: ReceiptPdfData): Promise<Buffer> 
     brandPrimary: orgBrand.brandPrimary,
   });
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
-  });
+  const browser = await launchPdfBrowser();
 
   try {
     const page = await browser.newPage();

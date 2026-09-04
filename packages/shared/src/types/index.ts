@@ -408,6 +408,32 @@ export interface Invoice {
   updatedAt: Date;
 }
 
+export enum ClientPaymentStatus {
+  PAID = "paid",
+  UNPAID = "unpaid",
+  OVERDUE = "overdue",
+  NO_INVOICE = "no_invoice",
+}
+
+export interface ClientPaymentSummary {
+  clientId: string;
+  status: ClientPaymentStatus;
+  outstandingByCurrency: Array<{ currency: string; amount: number }>;
+  overdueInvoiceCount: number;
+  unpaidInvoiceCount: number;
+  latestInvoice: Pick<
+    Invoice,
+    | "id"
+    | "invoiceNumber"
+    | "status"
+    | "amountDue"
+    | "total"
+    | "currency"
+    | "issueDate"
+    | "dueDate"
+  > | null;
+}
+
 export interface InvoiceItem {
   id: string;
   productId?: string;

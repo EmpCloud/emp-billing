@@ -3,7 +3,7 @@ import { authenticate } from "../middleware/auth.middleware";
 import { requireSales, requireAccountant } from "../middleware/rbac.middleware";
 import { asyncHandler } from "../middleware/error.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { CreateClientSchema, UpdateClientSchema, ClientContactSchema, AutoProvisionClientSchema } from "@emp-billing/shared";
+import { CreateClientSchema, UpdateClientSchema, ClientContactSchema, AutoProvisionClientSchema, ClientPaymentSummariesSchema } from "@emp-billing/shared";
 import * as clientController from "../controllers/client.controller";
 import * as importExportController from "../controllers/import-export.controller";
 
@@ -16,6 +16,10 @@ router.post("/auto-provision", requireSales, validateBody(AutoProvisionClientSch
 // Import / Export (before /:id to avoid route conflicts)
 router.get("/export/csv",  requireSales, asyncHandler(importExportController.exportClients));
 router.post("/import/csv", requireAccountant, asyncHandler(importExportController.importClients));
+
+// Batch payment analytics for trusted service consumers. Keep this before
+// /:id so Express never interprets "payment-summaries" as a client id.
+router.post("/payment-summaries", validateBody(ClientPaymentSummariesSchema), asyncHandler(clientController.getClientPaymentSummaries));
 
 // CRUD
 router.get("/",            asyncHandler(clientController.listClients));

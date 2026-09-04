@@ -59,6 +59,14 @@ export async function getClientBalance(req: Request, res: Response): Promise<voi
   res.json({ success: true, data: balance });
 }
 
+export async function getClientPaymentSummaries(req: Request, res: Response): Promise<void> {
+  const summaries = await clientService.getClientPaymentSummaries(
+    req.user!.orgId,
+    req.body.clientIds,
+  );
+  res.json({ success: true, data: summaries });
+}
+
 export async function updatePaymentMethod(req: Request, res: Response): Promise<void> {
   const client = await clientService.updatePaymentMethod(
     req.user!.orgId,
