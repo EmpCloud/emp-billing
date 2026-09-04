@@ -183,6 +183,11 @@ export class MongoAdapter implements IDBAdapter {
     options: QueryOptions = {}
   ): Promise<T[]> {
     const filter = options.where ? this.buildFilter(options.where) : {};
+    if (options.whereIn) {
+      for (const [column, values] of Object.entries(options.whereIn)) {
+        filter[column === "id" ? "_id" : column] = { $in: values };
+      }
+    }
     const projection = this.buildProjection(options.columns);
     const sort = this.buildSort(options.orderBy);
 
@@ -205,10 +210,15 @@ export class MongoAdapter implements IDBAdapter {
     table: string,
     options: QueryOptions & { page: number; limit: number }
   ): Promise<PaginatedResult<T>> {
-    const { page, limit, where, orderBy, columns } = options;
+    const { page, limit, where, whereIn, orderBy, columns } = options;
     const offset = (page - 1) * limit;
 
     const filter = where ? this.buildFilter(where) : {};
+    if (whereIn) {
+      for (const [column, values] of Object.entries(whereIn)) {
+        filter[column === "id" ? "_id" : column] = { $in: values };
+      }
+    }
     const total = await this.col(table).countDocuments(filter, this.sOpts);
 
     const projection = this.buildProjection(columns);

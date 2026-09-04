@@ -117,6 +117,10 @@ export const ClientContactSchema = z.object({
   isPrimary: z.boolean().default(false),
 });
 
+export const ClientPaymentSummariesSchema = z.object({
+  clientIds: z.array(z.string().uuid()).min(1).max(100),
+});
+
 export const CreateClientSchema = z.object({
   name: z.string().min(1, "Client name is required").max(100).refine((v) => !/^\d+$/.test(v.trim()), "Client name cannot be purely numeric"),
   displayName: z.string().min(1).max(100),

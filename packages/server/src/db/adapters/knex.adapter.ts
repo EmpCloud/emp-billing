@@ -80,6 +80,11 @@ export class KnexAdapter implements IDBAdapter {
   async findMany<T>(table: string, options: QueryOptions = {}): Promise<T[]> {
     const q = this.knex(table);
     if (options.where) q.where(options.where);
+    if (options.whereIn) {
+      Object.entries(options.whereIn).forEach(([column, values]) =>
+        q.whereIn(column, values as KnexType.Value[]),
+      );
+    }
     if (options.columns) q.select(options.columns);
     if (options.orderBy) {
       options.orderBy.forEach(({ column, direction }) => q.orderBy(column, direction));
@@ -94,16 +99,26 @@ export class KnexAdapter implements IDBAdapter {
     table: string,
     options: QueryOptions & { page: number; limit: number }
   ): Promise<PaginatedResult<T>> {
-    const { page, limit, where, orderBy, columns } = options;
+    const { page, limit, where, whereIn, orderBy, columns } = options;
     const offset = (page - 1) * limit;
 
     const countQ = this.knex(table).count("* as count");
     if (where) countQ.where(where);
+    if (whereIn) {
+      Object.entries(whereIn).forEach(([column, values]) =>
+        countQ.whereIn(column, values as KnexType.Value[]),
+      );
+    }
     const countResult = await countQ.first();
     const total = parseInt(String((countResult as Record<string, unknown>)?.count ?? 0));
 
     const q = this.knex(table);
     if (where) q.where(where);
+    if (whereIn) {
+      Object.entries(whereIn).forEach(([column, values]) =>
+        q.whereIn(column, values as KnexType.Value[]),
+      );
+    }
     if (columns) q.select(columns);
     if (orderBy) orderBy.forEach(({ column, direction }) => q.orderBy(column, direction));
     q.limit(limit).offset(offset);

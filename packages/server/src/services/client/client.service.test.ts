@@ -13,6 +13,7 @@ import {
   updateClient,
   deleteClient,
   getClientStatement,
+  getClientPaymentSummaries,
 } from "./client.service";
 
 const mockedGetDB = vi.mocked(getDB);
@@ -403,6 +404,60 @@ describe("client.service", () => {
 
       expect(result.entries).toHaveLength(1);
       expect(result.entries[0].number).toBe("INV-IN-RANGE");
+    });
+  });
+
+  describe("getClientPaymentSummaries", () => {
+    it("loads all requested clients and invoices in two tenant-scoped queries", async () => {
+      mockDb.findMany
+        .mockResolvedValueOnce([{ id: CLIENT_ID }, { id: "client-201" }])
+        .mockResolvedValueOnce([{
+        id: `invoice-${CLIENT_ID}`,
+        orgId: ORG_ID,
+        clientId: CLIENT_ID,
+        invoiceNumber: "INV-PAID",
+        status: "paid",
+        issueDate: new Date("2026-09-01T00:00:00Z"),
+        dueDate: new Date("2026-09-30T00:00:00Z"),
+        currency: "INR",
+        total: 10_000,
+        amountDue: 0,
+      }, {
+        id: "invoice-client-201",
+        orgId: ORG_ID,
+        clientId: "client-201",
+        invoiceNumber: "INV-PAID-2",
+        status: "paid",
+        issueDate: new Date("2026-09-02T00:00:00Z"),
+        dueDate: new Date("2026-09-30T00:00:00Z"),
+        currency: "INR",
+        total: 20_000,
+        amountDue: 0,
+      }]);
+
+      const result = await getClientPaymentSummaries(ORG_ID, [CLIENT_ID, "client-201"]);
+
+      expect(result).toHaveLength(2);
+      expect(result.map((summary) => summary.status)).toEqual(["paid", "paid"]);
+      expect(mockDb.findMany).toHaveBeenNthCalledWith(1, "clients", {
+        where: { org_id: ORG_ID },
+        whereIn: { id: [CLIENT_ID, "client-201"] },
+        columns: ["id"],
+      });
+      expect(mockDb.findMany).toHaveBeenNthCalledWith(2, "invoices", {
+        where: { org_id: ORG_ID },
+        whereIn: { client_id: [CLIENT_ID, "client-201"] },
+      });
+      expect(mockDb.findMany).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not return clients outside the authenticated billing organization", async () => {
+      mockDb.findMany.mockResolvedValueOnce([]);
+
+      const result = await getClientPaymentSummaries(ORG_ID, ["foreign-client"]);
+
+      expect(result).toEqual([]);
+      expect(mockDb.findMany).toHaveBeenCalledTimes(1);
     });
   });
 });

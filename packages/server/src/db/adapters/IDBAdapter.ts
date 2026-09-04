@@ -5,6 +5,7 @@
 
 export interface QueryOptions {
   where?: Record<string, unknown>;
+  whereIn?: Record<string, unknown[]>;
   orderBy?: { column: string; direction: "asc" | "desc" }[];
   limit?: number;
   offset?: number;

@@ -4,11 +4,12 @@ import { KnexAdapter } from "../../db/adapters/knex.adapter";
 import { NotFoundError, ConflictError } from "../../utils/AppError";
 import { formatMoney } from "@emp-billing/shared";
 import { emit } from "../../events/index";
-import type { Client, ClientContact } from "@emp-billing/shared";
+import type { Client, ClientContact, ClientPaymentSummary, Invoice } from "@emp-billing/shared";
 import crypto from "crypto";
 import type { z } from "zod";
 import type { CreateClientSchema, UpdateClientSchema, AutoProvisionClientSchema } from "@emp-billing/shared";
 import { config } from "../../config/index";
+import { summarizeClientInvoices } from "./payment-summary";
 
 // ============================================================================
 // CLIENT SERVICE
@@ -313,6 +314,38 @@ export async function getClientBalance(orgId: string, clientId: string) {
       totalPaid: formatMoney(client.totalPaid, client.currency),
     },
   };
+}
+
+export async function getClientPaymentSummaries(
+  orgId: string,
+  clientIds: string[],
+): Promise<ClientPaymentSummary[]> {
+  const db = await getDB();
+  const uniqueClientIds = Array.from(new Set(clientIds));
+  if (uniqueClientIds.length === 0) return [];
+
+  const clients = await db.findMany<Client>("clients", {
+    where: { org_id: orgId },
+    whereIn: { id: uniqueClientIds },
+    columns: ["id"],
+  });
+  const validClientIds = new Set(clients.map((client) => client.id));
+  if (validClientIds.size === 0) return [];
+
+  const invoices = await db.findMany<Invoice>("invoices", {
+    where: { org_id: orgId },
+    whereIn: { client_id: Array.from(validClientIds) },
+  });
+  const invoicesByClientId = new Map<string, Invoice[]>();
+  for (const invoice of invoices) {
+    const grouped = invoicesByClientId.get(invoice.clientId) ?? [];
+    grouped.push(invoice);
+    invoicesByClientId.set(invoice.clientId, grouped);
+  }
+
+  return uniqueClientIds
+    .filter((clientId) => validClientIds.has(clientId))
+    .map((clientId) => summarizeClientInvoices(clientId, invoicesByClientId.get(clientId) ?? []));
 }
 
 // ── Payment Method ───────────────────────────────────────────────────────────
